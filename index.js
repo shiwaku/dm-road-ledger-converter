@@ -4,7 +4,7 @@
 //   node index.js                                     # ../DMデータ/ を再帰検索して output/ へ出力
 //   node index.js --input /path/to/dir                # 入力フォルダを直接指定
 //   node index.js --epsg 6672                         # 座標系を指定（デフォルト: 6672 第4系）
-//   node index.js --scale 500                         # 縮尺を指定（デフォルト: 500）
+// 縮尺はDMファイルのMレコードから自動取得し、Scaleプロパティとして出力する
 // -----------------------------------------
 const path = require('path');
 const fs = require('fs');
@@ -14,14 +14,10 @@ const GeoJSONWriter = require('./geojsonWriter');
 
 function parseArgs() {
   const args = process.argv.slice(2);
-  let scale = 500;
   let input = null;
   let epsg  = 6672;   // デフォルト: JGD2011 / 日本平面直角座標系 第4系（四国4県）
 
   for (let i = 0; i < args.length; i++) {
-    if (args[i] === '--scale' && args[i + 1]) {
-      scale = parseInt(args[i + 1]);
-    }
     if (args[i] === '--input' && args[i + 1]) {
       input = args[i + 1];
     }
@@ -30,10 +26,6 @@ function parseArgs() {
     }
   }
 
-  if (isNaN(scale) || scale <= 0) {
-    console.error('--scale に正の整数を指定してください');
-    process.exit(1);
-  }
   if (isNaN(epsg) || epsg <= 0) {
     console.error('--epsg に正の整数を指定してください');
     process.exit(1);
@@ -50,19 +42,19 @@ function parseArgs() {
     process.exit(1);
   }
 
-  return { scale, dmDir: input, epsg };
+  return { dmDir: input, epsg };
 }
 
 function main() {
-  const { scale, dmDir, epsg } = parseArgs();
+  const { dmDir, epsg } = parseArgs();
 
   const outDir = path.join(__dirname, 'output');
   fs.mkdirSync(outDir, { recursive: true });
 
-  const outLine = path.join(outDir, `道路台帳図_${scale}_線.geojson`);
-  const outPoly = path.join(outDir, `道路台帳図_${scale}_面.geojson`);
-  const outSym  = path.join(outDir, `道路台帳図_${scale}_記号.geojson`);
-  const outTxt  = path.join(outDir, `道路台帳図_${scale}_注記.geojson`);
+  const outLine = path.join(outDir, '道路台帳図_線.geojson');
+  const outPoly = path.join(outDir, '道路台帳図_面.geojson');
+  const outSym  = path.join(outDir, '道路台帳図_記号.geojson');
+  const outTxt  = path.join(outDir, '道路台帳図_注記.geojson');
 
   const wLine = new GeoJSONWriter(outLine, epsg);
   const wPoly = new GeoJSONWriter(outPoly, epsg);
@@ -84,6 +76,7 @@ function main() {
           wLine.setGeometry(1, dat.XYList);
           wLine.setPropertie('Code',       dat.LAYER       || '');
           wLine.setPropertie('Elno',       dat.ELNO        || '');
+          wLine.setPropertie('Scale',      dat.SCALE       || '');
           wLine.setPropertie('RecordType', dat.RECORD_TYPE || '');
           wLine.setPropertie('DataType',   dat.DATA_TYPE   || '');
           wLine.setPropertie('DataKind',   dat.DATA_KIND   || '');
@@ -93,6 +86,7 @@ function main() {
           wPoly.setGeometry(2, dat.XYList);
           wPoly.setPropertie('Code',       dat.LAYER       || '');
           wPoly.setPropertie('Elno',       dat.ELNO        || '');
+          wPoly.setPropertie('Scale',      dat.SCALE       || '');
           wPoly.setPropertie('RecordType', dat.RECORD_TYPE || '');
           wPoly.setPropertie('DataType',   dat.DATA_TYPE   || '');
           wPoly.setPropertie('DataKind',   dat.DATA_KIND   || '');
@@ -102,6 +96,7 @@ function main() {
           wSym.setGeometry(5, dat.XYList);
           wSym.setPropertie('Code',       dat.LAYER       || '');
           wSym.setPropertie('Elno',       dat.ELNO        || '');
+          wSym.setPropertie('Scale',      dat.SCALE       || '');
           wSym.setPropertie('RecordType', dat.RECORD_TYPE || '');
           wSym.setPropertie('DataType',   dat.DATA_TYPE   || '');
           wSym.setPropertie('DataKind',   dat.DATA_KIND   || '');
@@ -111,6 +106,7 @@ function main() {
           wTxt.setGeometry(4, dat.XYList);
           wTxt.setPropertie('Code',       dat.LAYER       || '');
           wTxt.setPropertie('Elno',       dat.ELNO        || '');
+          wTxt.setPropertie('Scale',      dat.SCALE       || '');
           wTxt.setPropertie('Text',       dat.TEXT        || '');
           wTxt.setPropertie('Vnflag',     dat.VNFLAG      || '');
           wTxt.setPropertie('Angle',      dat.ANGLE !== undefined ? dat.ANGLE : '');
@@ -137,6 +133,7 @@ function main() {
   console.log(outTxt);
   console.log(`DM dir: ${dmDir}`);
   console.log(`EPSG: ${epsg}`);
+  console.log('縮尺はScaleプロパティに各フィーチャの値を格納');
 }
 
 main();

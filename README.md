@@ -6,6 +6,8 @@
 
 サブフォルダを再帰的に検索するため、土木事務所・路線単位のディレクトリ構造に対応しています。
 
+縮尺はDMファイルのMレコード（地図情報レベル）から自動取得し、各フィーチャの `Scale` プロパティに格納します。1/500 と 1/1000 の混在データにも対応しています。
+
 ## 前提条件
 
 - Node.js 18以上
@@ -52,7 +54,6 @@ node index.js --input "../DMデータ/道路台帳DMデータ/DMデータ/路線
 
 | オプション | デフォルト | 説明 |
 |---|---|---|
-| `--scale` | `500` | 縮尺（出力ファイル名に使用） |
 | `--epsg` | `6672` | 入力データの座標参照系（EPSGコード） |
 | `--input` | `../DMデータ/` | DMファイルが格納されたフォルダ（サブフォルダを再帰検索） |
 | `--workers` | `8` | 並列ワーカー数（`index_parallel.js` のみ） |
@@ -62,7 +63,7 @@ node index.js --input "../DMデータ/道路台帳DMデータ/DMデータ/路線
 | 実行方法 | 処理時間 |
 |---|---|
 | シングルスレッド | 約5分 |
-| 並列版（12ワーカー） | **約77秒** |
+| 並列版（12ワーカー） | **約70秒** |
 
 ### 出力ファイル
 
@@ -70,10 +71,10 @@ node index.js --input "../DMデータ/道路台帳DMデータ/DMデータ/路線
 
 | ファイル名 | 内容 |
 |---|---|
-| `道路台帳図_<縮尺>_線.geojson` | 線要素（E2） |
-| `道路台帳図_<縮尺>_面.geojson` | 面要素（E1） |
-| `道路台帳図_<縮尺>_記号.geojson` | 記号・点要素（E5） |
-| `道路台帳図_<縮尺>_注記.geojson` | 注記要素（E7） |
+| `道路台帳図_線.geojson` | 線要素（E2） |
+| `道路台帳図_面.geojson` | 面要素（E1） |
+| `道路台帳図_記号.geojson` | 記号・点要素（E5） |
+| `道路台帳図_注記.geojson` | 注記要素（E7） |
 
 出力されたGeoJSONはQGIS等に読み込むことで地図表示や、tippecanoe等のツールを使ってベクトルタイルへの変換が可能です。
 
@@ -94,6 +95,7 @@ node index.js --input "../DMデータ/道路台帳DMデータ/DMデータ/路線
 |---|---|---|
 | `Code` | 分類コード（DMの層番号） | `2101` |
 | `Elno` | 要素識別番号 | `3193-112-2101-0001` |
+| `Scale` | 縮尺（Mレコードから自動取得） | `500`、`1000` |
 | `RecordType` | レコードタイプ | `E1`（面）、`E2`（線）、`E5`（記号） |
 | `DataType` | データタイプ（日本語） | `面`、`線`、`点` |
 | `DataKind` | 実データ区分 | `0`（データなし）、`2`（二次元）、`4`（注記） |
@@ -158,14 +160,14 @@ for %f in (*.geojson) do ogr2ogr -f Parquet "%~nf.parquet" "%f"
 
 ```bash
 tippecanoe \
-  -o road_ledger_500.mbtiles \
+  -o road_ledger.mbtiles \
   -Z15 -z18 \
   -r1 \
   --no-feature-limit \
   --no-tile-size-limit \
   --force \
-  -L road_line:道路台帳図_500_線.geojson \
-  -L road_polygon:道路台帳図_500_面.geojson \
-  -L road_symbol:道路台帳図_500_記号.geojson \
-  -L road_annotation:道路台帳図_500_注記.geojson
+  -L road_line:道路台帳図_線.geojson \
+  -L road_polygon:道路台帳図_面.geojson \
+  -L road_symbol:道路台帳図_記号.geojson \
+  -L road_annotation:道路台帳図_注記.geojson
 ```

@@ -44,6 +44,7 @@ class DM {
     let recno = 0;
     let unitcode = '';
     let ldx = 0, ldy = 0;
+    let scale = 0;
 
     while (recno < lines.length - 1) {
       const record = lines[recno];
@@ -52,6 +53,8 @@ class DM {
       if (rectype[0] === 'M') {
         // 図郭レコード(a)
         unitcode = decode(record, 2, 10).trimEnd();
+        const scaleStr = decode(record, 30, 35).trim();
+        scale = scaleStr ? parseInt(scaleStr) : 0;
         const editcnt = parseInt(decode(record, 65, 67));
         recno++;
         // 図郭レコード(b)
@@ -107,7 +110,8 @@ class DM {
             XYList: xy,
             RECORD_TYPE: curRectype,
             DATA_KIND: datakind,
-            DATA_TYPE: datatype
+            DATA_TYPE: datatype,
+            SCALE: scale
           };
           dictSeqno++;
           recno++;
@@ -124,7 +128,8 @@ class DM {
             XYList: [ldy + py, ldx + px],
             RECORD_TYPE: curRectype,
             DATA_KIND: datakind,
-            DATA_TYPE: datatype
+            DATA_TYPE: datatype,
+            SCALE: scale
           };
           dictSeqno++;
           recno += recordcnt + 1;
@@ -148,7 +153,8 @@ class DM {
             TEXT: text,
             RECORD_TYPE: curRectype,
             DATA_KIND: datakind,
-            DATA_TYPE: datatype
+            DATA_TYPE: datatype,
+            SCALE: scale
           };
           dictSeqno++;
           recno += recordcnt + 1;

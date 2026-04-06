@@ -53,6 +53,7 @@ if (!isMainThread) {
         const base = JSON.stringify({
           Code: dat.LAYER || '',
           Elno: dat.ELNO || '',
+          Scale: dat.SCALE || '',
           RecordType: dat.RECORD_TYPE || '',
           DataType: dat.DATA_TYPE || '',
           DataKind: dat.DATA_KIND || ''
@@ -94,10 +95,9 @@ const DMFiles = require('./dmfiles');
 
 function parseArgs() {
   const args = process.argv.slice(2);
-  let scale = 500, input = null, epsg = 6672, numWorkers = 8;
+  let input = null, epsg = 6672, numWorkers = 8;
 
   for (let i = 0; i < args.length; i++) {
-    if (args[i] === '--scale'   && args[i+1]) scale      = parseInt(args[i+1]);
     if (args[i] === '--input'   && args[i+1]) input      = args[i+1];
     if (args[i] === '--epsg'    && args[i+1]) epsg       = parseInt(args[i+1]);
     if (args[i] === '--workers' && args[i+1]) numWorkers = parseInt(args[i+1]);
@@ -108,12 +108,12 @@ function parseArgs() {
   if (!fs.existsSync(input)) {
     console.error(`入力フォルダが見つかりません: ${input}`); process.exit(1);
   }
-  return { scale, dmDir: input, epsg, numWorkers };
+  return { dmDir: input, epsg, numWorkers };
 }
 
 function fmt(n) { return parseFloat(n.toFixed(7)).toString(); }
 
-function mergeNDJSON(types, numWorkers, outDir, scale, epsg) {
+function mergeNDJSON(types, numWorkers, outDir, epsg) {
   proj4.defs('EPSG:4326', '+proj=longlat +datum=WGS84 +no_defs');
   const epsgDef = EPSG_DEFS[epsg];
   if (!epsgDef) { console.error(`未対応EPSG: ${epsg}`); process.exit(1); }
@@ -128,7 +128,7 @@ function mergeNDJSON(types, numWorkers, outDir, scale, epsg) {
   };
 
   for (const [typeName, info] of Object.entries(typeInfo)) {
-    const outPath = path.join(outDir, `道路台帳図_${scale}_${typeName}.geojson`);
+    const outPath = path.join(outDir, `道路台帳図_${typeName}.geojson`);
     const fd = fs.openSync(outPath, 'w');
     const BUFSZ = 64 * 1024;
     let buf = Buffer.allocUnsafe(BUFSZ), pos = 0;
@@ -182,7 +182,7 @@ function mergeNDJSON(types, numWorkers, outDir, scale, epsg) {
 }
 
 async function main() {
-  const { scale, dmDir, epsg, numWorkers } = parseArgs();
+  const { dmDir, epsg, numWorkers } = parseArgs();
   const outDir = path.join(__dirname, 'output');
   fs.mkdirSync(outDir, { recursive: true });
 
@@ -217,11 +217,12 @@ async function main() {
   });
 
   console.log('\nGeoJSON出力中...');
-  mergeNDJSON(['線','面','記号','注記'], numWorkers, outDir, scale, epsg);
+  mergeNDJSON(['線','面','記号','注記'], numWorkers, outDir, epsg);
 
   const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
   console.log(`\n完了（${elapsed}秒）`);
-  console.log(`EPSG: ${epsg}、縮尺: ${scale}`);
+  console.log(`EPSG: ${epsg}`);
+  console.log('縮尺はScaleプロパティに各フィーチャの値を格納');
 }
 
 main().catch(e => { console.error(e); process.exit(1); });
