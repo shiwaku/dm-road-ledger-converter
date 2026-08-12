@@ -1,3 +1,8 @@
 node_modules/
 dist/
 public/*.pmtiles
+
+# Pages で配信するタイルだけは追跡する。CI には入力DMデータが無く
+# （data/ は除外）タイルを生成できないため、生成物をコミットしている。
+# 変換結果を変えたら scripts/build.sh を実行し、複製されたこれをコミットし直す。
+!public/road_ledger.pmtiles
