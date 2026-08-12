@@ -3,7 +3,7 @@
 // 使用方法:
 //   node src/index.js                                 # ../DMデータ/ を再帰検索して output/ へ出力
 //   node src/index.js --input /path/to/dir            # 入力フォルダを直接指定
-//   node src/index.js --epsg 6672                     # 座標系を指定（デフォルト: 6672 第4系）
+//   node src/index.js --epsg 6677                     # 座標系を指定（デフォルト: 6674 第6系）
 //   node src/index.js --jobs 4                        # 並列数を指定（既定: CPUコア数-1）
 //   node src/index.js --jobs 1                        # 逐次実行
 // 縮尺はDMファイルのMレコードから自動取得し、Scaleプロパティとして出力する
@@ -21,7 +21,7 @@ const ROOT = path.join(__dirname, '..');
 function parseArgs() {
   const args = process.argv.slice(2);
   let input = null;
-  let epsg  = 6672;   // デフォルト: JGD2011 / 日本平面直角座標系 第4系（四国4県）
+  let epsg  = 6674;   // デフォルト: JGD2011 / 日本平面直角座標系 第6系（豊中サンプルに合わせる）
   let jobs  = defaultJobs();
 
   for (let i = 0; i < args.length; i++) {

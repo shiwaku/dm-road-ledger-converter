@@ -10,7 +10,7 @@
 #   scripts/build.sh /path/to/dm_dir         # 入力フォルダを指定
 #
 # 環境変数:
-#   EPSG=6674        入力データの座標参照系（既定: src/index.js の既定値 6672）
+#   EPSG=6674        入力データの座標参照系（既定: src/index.js の既定値 6674）
 #   JOBS=4           並列数（既定: src/index.js の既定値 = CPUコア数-1）
 #   MAXZOOM=18       タイルの最大ズーム（既定: 18 = 地図情報レベル500）
 #   MINZOOM=15       タイルの最小ズーム（既定: 15）
