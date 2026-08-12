@@ -16,7 +16,10 @@ const BUFFER_SIZE = 64 * 1024; // 64KB
 
 class GeoJSONWriter {
   // epsgCode: 入力データの座標参照系（EPSG整数コード）
-  constructor(outFile, epsgCode) {
+  // opts.fragment: FeatureCollection の外枠を書かず、Feature の並びだけを出力する。
+  //   並列処理でワーカーごとの断片を作り、あとで連結するために使う。
+  constructor(outFile, epsgCode, opts = {}) {
+    this._fragment = opts.fragment === true;
     const def = EPSG_DEFS[epsgCode];
     if (!def) {
       const keys = Object.keys(EPSG_DEFS).join(', ');
@@ -56,10 +59,12 @@ class GeoJSONWriter {
 
   close() {
     if (this._closed) return;
-    if (!this._started) {
-      this._write('{"type":"FeatureCollection","features":[]}');
-    } else {
-      this._write('\n]}');
+    if (!this._fragment) {
+      if (!this._started) {
+        this._write('{"type":"FeatureCollection","features":[]}');
+      } else {
+        this._write('\n]}');
+      }
     }
     this._flushBuffer();
     fs.closeSync(this._fd);
@@ -111,13 +116,14 @@ class GeoJSONWriter {
       this.properties += ',';
     }
     const val = Array.isArray(value) ? value.join('') : String(value);
-    this.properties += `"${name}":"${val}"`;
+    // 注記に " や \ が含まれてもJSONが壊れないようエスケープする
+    this.properties += `${JSON.stringify(String(name))}:${JSON.stringify(val)}`;
   }
 
   // ファイルへの書き込み（1 Feature）
   write() {
     if (!this._started) {
-      this._write('{"type":"FeatureCollection","features":[\n');
+      if (!this._fragment) this._write('{"type":"FeatureCollection","features":[\n');
       this._started = true;
     } else {
       this._write(',\n');

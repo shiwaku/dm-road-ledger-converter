@@ -1,10 +1,11 @@
 {
-  "name": "road-ledger-dm2geojson",
+  "name": "dm-road-ledger-converter",
   "version": "1.0.0",
   "description": "道路台帳DMファイルをGeoJSONに変換",
-  "main": "index.js",
+  "license": "Apache-2.0",
+  "main": "src/index.js",
   "scripts": {
-    "start": "node index.js"
+    "start": "node src/index.js"
   },
   "dependencies": {
     "iconv-lite": "^0.6.3",
