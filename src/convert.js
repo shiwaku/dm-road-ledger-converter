@@ -25,9 +25,17 @@ const ELEV_CODES = new Set([
   '7311', '7312',                 // 標高点
 ]);
 
+/** 標高点。等高線と違い、図面では標高を小数付きで描く。 */
+const ELEV_POINT_CODES = new Set(['7311', '7312']);
+
 /**
  * 標高値（メートル）。対象外のコードと値が入っていないレコードでは空文字を返す。
  * DMはミリメートルで持つため1000で割る（`27300` → `27.3`）。
+ *
+ * 標高点は小数1桁に揃える（`27000` → `27.0`）。割り切れると `27` になり、
+ * 隣に並ぶ `26.1` と桁数が揃わず標高だと読み取りにくくなるため。
+ * 桁を増やすだけで丸めはしない（`25730` は `25.73` のまま）。
+ * 等高線は図面が整数で描くので何もしない。
  *
  * `0` は「未記録」として空にする。豊中市サンプルの `7311`（標石を有しない標高点）は
  * 70件すべてこのフィールドが0で、レコード中に標高値そのものが無い（提供元の
@@ -41,7 +49,21 @@ function elevOf(dat) {
   if (raw === undefined || raw === '') return '';
   const mm = Number(raw);
   if (!Number.isFinite(mm) || mm === 0) return '';
-  return mm / 1000;
+  const m = mm / 1000;
+  if (ELEV_POINT_CODES.has(dat.LAYER) && Number.isInteger(m)) return m.toFixed(1);
+  return m;
+}
+
+/**
+ * 注記の文字列。`￥`（U+FFE5・JIS `216F`）は改行位置を示すマーカーなので改行に置き換える。
+ *
+ * 図面では実際にここで行が割れており、そのまま出すと
+ * `パラツィーナ￥エスタ桜塚` のように記号として表示されてしまう。
+ * 出力はGeoJSONなので改行は `\n` としてエスケープされ、
+ * MapLibre の `text-field` はこれを改行として描く。
+ */
+function textOf(dat) {
+  return (dat.TEXT || '').replace(/￥/g, '\n');
 }
 
 /** 全種別に共通する属性。 */
@@ -109,7 +131,7 @@ function convertFiles(files, writers, onFile) {
         w.setPropertie('Code',   dat.LAYER || '');
         w.setPropertie('Elno',   dat.ELNO  || '');
         w.setPropertie('Scale',  dat.SCALE || '');
-        w.setPropertie('Text',   dat.TEXT  || '');
+        w.setPropertie('Text',   textOf(dat));
         w.setPropertie('Vnflag', dat.VNFLAG || '');
         w.setPropertie('Angle',  dat.ANGLE !== undefined ? dat.ANGLE : '');
         w.setPropertie('RecordType', dat.RECORD_TYPE || '');
