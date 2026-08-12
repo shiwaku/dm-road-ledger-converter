@@ -1,0 +1,68 @@
+# viewer/ をビルドして GitHub Pages に配信する。
+# リポジトリは private だが、**配信されるサイトは誰でも見られる**。Pages の
+# アクセス制御は Enterprise Cloud のみで、Pro では限定公開にできない
+# （API は "Current plan does not support private GitHub Pages" を返す）。
+# 公開したくない期間はこのワークフローを実行しない。
+#
+# タイルは viewer/public/road_ledger.pmtiles をコミットしたものを使う。
+# CI には入力DMデータが無い（data/ は除外）ので変換からはやり直せない。
+# viewer/scripts/copy-tiles.mjs は output/ が無いと警告だけ出して正常終了し、
+# コミット済みのタイルがそのまま残る。
+name: Deploy viewer to Pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'viewer/**'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# 同時実行を1本に絞る。進行中のデプロイは中断しない
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: viewer/package-lock.json
+
+      - name: 依存をインストール
+        run: npm ci
+        working-directory: viewer
+
+      - name: ビルド
+        run: npm run build
+        working-directory: viewer
+
+      - name: タイルが dist に入ったか確認
+        run: test -s viewer/dist/road_ledger.pmtiles
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: viewer/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
