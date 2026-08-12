@@ -42,7 +42,7 @@ ANNOTATION_MIN_ZOOM=17
 # タイルに残す属性。描画に必要なものだけに絞る。
 # Elno はフィーチャごとにユニークな文字列で、タイル内の文字列辞書を最も膨らませる。
 # RecordType / DataType / DataKind / Scale / Vnflag / Seq はポップアップ表示専用のため落とす。
-TILE_ATTRS=(Code Text Angle)
+TILE_ATTRS=(Code Text Angle Elev)
 
 have() { command -v "$1" >/dev/null 2>&1; }
 log() { printf '\n\033[1m==> %s\033[0m\n' "$*"; }

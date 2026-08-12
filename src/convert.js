@@ -7,11 +7,49 @@ const DM = require('./dm');
 /** 出力種別。Writer の並び順とファイル名サフィックスの対応。 */
 const KINDS = ['線', '面', '記号', '方向', '注記'];
 
+/**
+ * Eレコードの標高値フィールド（50〜56桁）を標高として出す分類コード。
+ *
+ * このフィールドは分類コードによって意味が変わる。等高線（71xx）と標高点（7311・7312）
+ * では標高がミリメートルで入るが、基準点系（7301〜7306）では点番号が入る。
+ * 豊中市サンプルの `7306` は DM 側が `3013400`、提供元のシェープファイル版が
+ * 点番号 `30134`／標高 `26.05` を別フィールドに持っており、標高ではないと判断できる。
+ *
+ * 本ツールは通常、分類コードを解釈せず `Code` として素通しする。ここだけは例外で、
+ * コードを見なければ標高か点番号かを区別できないため、対象を明示的に列挙している。
+ * 対象外のコードでは `Elev` を空にする（値を捨てる）。
+ */
+const ELEV_CODES = new Set([
+  '7101', '7102', '7103', '7104', // 等高線（計曲線・主曲線・補助曲線）
+  '7105', '7106', '7107',         // 凹地
+  '7311', '7312',                 // 標高点
+]);
+
+/**
+ * 標高値（メートル）。対象外のコードと値が入っていないレコードでは空文字を返す。
+ * DMはミリメートルで持つため1000で割る（`27300` → `27.3`）。
+ *
+ * `0` は「未記録」として空にする。豊中市サンプルの `7311`（標石を有しない標高点）は
+ * 70件すべてこのフィールドが0で、レコード中に標高値そのものが無い（提供元の
+ * シェープファイル版は別途 `Z_COORD` に標高を持つが、DM側には現れない）。
+ * そのまま0を出すと図面に「0」という標高が並ぶため出さない。
+ * 標高0.000mの地物も落ちるが、実在するとしても海面高の等高線だけで影響は小さい。
+ */
+function elevOf(dat) {
+  if (!ELEV_CODES.has(dat.LAYER)) return '';
+  const raw = dat.ELEV;
+  if (raw === undefined || raw === '') return '';
+  const mm = Number(raw);
+  if (!Number.isFinite(mm) || mm === 0) return '';
+  return mm / 1000;
+}
+
 /** 全種別に共通する属性。 */
 function setCommon(w, dat) {
   w.setPropertie('Code',       dat.LAYER       || '');
   w.setPropertie('Elno',       dat.ELNO        || '');
   w.setPropertie('Scale',      dat.SCALE       || '');
+  w.setPropertie('Elev',       elevOf(dat));
   w.setPropertie('RecordType', dat.RECORD_TYPE || '');
   w.setPropertie('DataType',   dat.DATA_TYPE   || '');
   w.setPropertie('DataKind',   dat.DATA_KIND   || '');
@@ -56,6 +94,9 @@ function convertFiles(files, writers, onFile) {
         // 1つのE6要素から複数本の方向が出るため、要素内の通し番号で区別する
         w.setPropertie('Seq',   dat.SEQ !== undefined ? dat.SEQ : '');
         w.setPropertie('Scale', dat.SCALE || '');
+        // 標高点（7311・7312）はこの方向要素として記録されることがある。
+        // その場合、標高値は注記（E7）ではなくEレコードの標高値フィールドに入っている。
+        w.setPropertie('Elev',  elevOf(dat));
         w.setPropertie('Angle', dat.ANGLE !== undefined ? dat.ANGLE : '');
         w.setPropertie('RecordType', dat.RECORD_TYPE || '');
         w.setPropertie('DataType',   dat.DATA_TYPE   || '');

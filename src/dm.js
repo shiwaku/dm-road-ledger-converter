@@ -120,6 +120,11 @@ class DM {
         const recordcnt = parseInt(decode(record, 31, 35));
         const datakind = decode(record, 20, 21);
         const datacnt = parseInt(decode(record, 27, 31));
+        // 標高値フィールド（50〜56桁）。単位はミリメートル。
+        // 等高線・標高点では標高が入るが、基準点系では点番号が入る（DM 3013400 に対し
+        // 提供元のシェープファイル版は点番号 30134 と標高 26.05 を別に持つ）。
+        // コードごとの解釈は convert.js 側で行い、ここでは生の値を渡す。
+        const elev = decode(record, 49, 56).trim();
         let curRectype = rectype;
         let datatype = DATATYPE_MAP[rectype] || '';
         const elno = `${unitcode}-${layercode}-${String(elementno).padStart(4, '0')}`;
@@ -129,7 +134,7 @@ class DM {
           // 実データ区分が3・6（三次元）の場合、1点は X,Y,Z の21バイトで1レコードに4点。
           // 2（二次元）の場合は X,Y の14バイトで1レコードに6点。Z値は使用しない。
           // 6を14バイトとして読むと座標がずれるため、データ数とレコード数の関係で確認している
-          // （kind=6 の要素でも ceil(データ数/4)=レコード数 が成立する）。
+          // （kind=6 の要素はいずれも ceil(データ数/4)=レコード数 が成立する）。
           const stride = (datakind === '3' || datakind === '6') ? 21 : 14;
           const perRecord = Math.floor(84 / stride);
           let pointcnt = 0;
@@ -160,6 +165,7 @@ class DM {
             LAYER: layercode,
             ELNO: elno,
             XYList: xy,
+            ELEV: elev,
             RECORD_TYPE: curRectype,
             DATA_KIND: datakind,
             DATA_TYPE: datatype,
@@ -178,6 +184,7 @@ class DM {
             LAYER: layercode,
             ELNO: elno,
             XYList: [ldy + py, ldx + px],
+            ELEV: elev,
             RECORD_TYPE: curRectype,
             DATA_KIND: datakind,
             DATA_TYPE: datatype,
@@ -222,6 +229,7 @@ class DM {
               SEQ: k / 2 + 1,
               XYList: [ldy + y1, ldx + x1],
               ANGLE: angle,
+              ELEV: elev,
               RECORD_TYPE: curRectype,
               DATA_KIND: datakind,
               DATA_TYPE: datatype,
