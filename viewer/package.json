@@ -1,0 +1,21 @@
+{
+  "name": "dm-road-ledger-converter-viewer",
+  "version": "1.0.0",
+  "private": true,
+  "description": "道路台帳図（DMデータ）の変換結果を表示するWebビューワ",
+  "license": "Apache-2.0",
+  "scripts": {
+    "copy:tiles": "node scripts/copy-tiles.mjs",
+    "dev": "npm run copy:tiles && vite",
+    "build": "npm run copy:tiles && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "maplibre-gl": "^5.15.0",
+    "pmtiles": "^3.2.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0",
+    "vite": "^6.0.0"
+  }
+}
