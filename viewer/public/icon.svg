@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="道路台帳図">
+  <rect width="512" height="512" rx="96" fill="#2a78d6"/>
+  <g fill="none" stroke="#ffffff" stroke-width="18" stroke-linejoin="round" stroke-linecap="round">
+    <!-- 図郭 -->
+    <rect x="96" y="96" width="320" height="320" rx="10"/>
+    <!-- 道路縁（線要素）。縦の道路と、下側で交差する横の道路 -->
+    <path d="M212 96v320"/>
+    <path d="M300 96v320"/>
+    <path d="M96 300h320"/>
+    <path d="M96 372h320"/>
+  </g>
+  <!-- 中心線（破線） -->
+  <path d="M256 112v288" fill="none" stroke="#ffffff" stroke-width="10" stroke-linecap="round"
+        stroke-dasharray="26 24"/>
+  <!-- 方向要素 -->
+  <path d="M150 176l56 32-56 32z" fill="#ffffff"/>
+</svg>

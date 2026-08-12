@@ -1,183 +1,511 @@
-import maplibregl from 'maplibre-gl';
-import { Protocol } from 'pmtiles';
-import 'maplibre-gl/dist/maplibre-gl.css';
-import './style.css';
-import { LAYERS, PROP_ORDER, SOURCE_ID } from './layers';
+import maplibregl from 'maplibre-gl'
+import { Protocol } from 'pmtiles'
+import 'maplibre-gl/dist/maplibre-gl.css'
 
-// PMTiles を pmtiles:// スキームで読めるようにする
-const protocol = new Protocol();
-maplibregl.addProtocol('pmtiles', protocol.tile);
+import { getBasemapStyle, loadSpriteCodes, type Basemap } from './basemap'
+import {
+  GROUPS,
+  SOURCES,
+  SOURCE_ID,
+  TILES_HREF,
+  buildLayers,
+  groupOf,
+  popupHtml,
+  POPUP_MAX_ITEMS,
+  type GroupKey,
+  type LayerEntry,
+  type LayerGroup,
+  type PopupItem,
+} from './layers'
+import { applyThemeAttr, initialTheme, type Theme } from './theme'
+import './style.css'
 
-const TILES = `pmtiles://${location.origin}${import.meta.env.BASE_URL}road_ledger.pmtiles`;
+let theme: Theme = initialTheme()
+let base: Basemap = 'pale'
+applyThemeAttr(theme)
 
-// 背景は地理院タイル（淡色）。ラスタなのでスタイルJSONを別途用意しなくてよい。
+const isMobile = window.matchMedia('(max-width: 640px)').matches
+const DEBUG = new URLSearchParams(location.search).has('debug')
+
+const protocol = new Protocol()
+maplibregl.addProtocol('pmtiles', protocol.tile)
+
+// 記号・方向は、スプライトにアイコンがあるコードだけをアイコンで描く。
+// どのコードが描けるかは起動時にスプライトの索引から読む（読めなければ全コードを代替図形で描く）。
+const spriteCodes = await loadSpriteCodes()
+
+// レイヤーの色はテーマで入れ替わるため、テーマを変えたら組み立て直す。
+let LAYERS: LayerEntry[] = buildLayers(theme, spriteCodes)
+const entriesOf = (key: GroupKey): LayerEntry[] => LAYERS.filter((l) => l.group === key)
+
 const map = new maplibregl.Map({
   container: 'map',
-  hash: true,
-  minZoom: 4,
-  maxZoom: 21,
-  style: {
-    version: 8,
-    // 注記の描画にフォントグリフが要る。地理院の配信を借りる。
-    glyphs: 'https://gsi-cyberjapan.github.io/optimal_bvmap/glyphs/{fontstack}/{range}.pbf',
-    sources: {
-      pale: {
-        type: 'raster',
-        tiles: ['https://cyberjapandata.gsi.go.jp/xyz/pale/{z}/{x}/{y}.png'],
-        tileSize: 256,
-        maxzoom: 18,
-        attribution:
-          '<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noopener">地理院タイル</a>',
-      },
-    },
-    layers: [{ id: 'pale', type: 'raster', source: 'pale', paint: { 'raster-opacity': 0.75 } }],
-  },
+  style: await getBasemapStyle(base, theme),
   center: [135.4696, 34.7805],
   zoom: 17,
-});
+  minZoom: 4,
+  maxZoom: 21,
+  maxPitch: 85,
+  // 地図位置を URL の #ズーム/緯度/経度 に反映（共有・リロード時の位置維持）
+  hash: true,
+  attributionControl: false,
+  // モバイルはGPU/メモリが限られるため保持タイル数と描画解像度を絞る。
+  // 逼迫すると WebGL コンテキストが失われ地図がまるごと消えるため、その圧を下げる。
+  maxTileCacheSize: isMobile ? 24 : undefined,
+  pixelRatio: isMobile ? Math.min(window.devicePixelRatio || 1, 2) : undefined,
+})
 
-map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'top-right');
-map.addControl(new maplibregl.ScaleControl({ maxWidth: 120, unit: 'metric' }));
-map.addControl(new maplibregl.GeolocateControl({ trackUserLocation: true }), 'top-right');
+map.addControl(new maplibregl.NavigationControl({ showCompass: true, visualizePitch: true }), 'top-right')
+map.addControl(
+  new maplibregl.GeolocateControl({
+    positionOptions: { enableHighAccuracy: false },
+    fitBoundsOptions: { maxZoom: 18 },
+    trackUserLocation: true,
+    showUserLocation: true,
+  }),
+  'top-right',
+)
+map.addControl(new maplibregl.FullscreenControl(), 'top-right')
+map.addControl(new maplibregl.ScaleControl({ maxWidth: 200, unit: 'metric' }), 'bottom-left')
+map.addControl(new maplibregl.AttributionControl({ compact: true }))
 
-const statusEl = document.getElementById('status') as HTMLElement;
-const setStatus = (msg: string, isError = false) => {
-  statusEl.textContent = msg;
-  statusEl.classList.toggle('is-error', isError);
-  statusEl.classList.toggle('is-hidden', msg === '');
-};
+// ---- 状態表示 ----
+const statusEl = document.getElementById('status') as HTMLElement
+function setStatus(msg: string, isError = false): void {
+  statusEl.textContent = msg
+  statusEl.classList.toggle('is-error', isError)
+  statusEl.classList.toggle('is-hidden', msg === '')
+}
 
-map.on('load', async () => {
+// ---- 診断（?debug で画面表示。実機での原因切り分け用） ----
+const diagLog: string[] = []
+let ctxLostCount = 0
+let hudEl: HTMLElement | null = null
+
+function diag(msg: string): void {
+  const line = `${new Date().toISOString().slice(11, 19)} ${msg}`
+  diagLog.push(line)
+  if (diagLog.length > 8) diagLog.shift()
+  console.log('[diag]', line)
+  renderHud()
+}
+
+/**
+ * スプライトに無いアイコンを要求されたら、透明画像を割り当てて何も描かない状態にする。
+ *
+ * 記号・方向はスプライトの索引（loadSpriteCodes）にあるコードだけをアイコンで描くため、
+ * 通常ここは通らない。索引と実体がずれている場合の保険で、毎タイル読み込み失敗が
+ * 報告されるのを止める。欠けているアイコンは ?debug の HUD に出す。
+ */
+const missingImages = new Set<string>()
+
+function handleMissingImage(id: string): void {
+  if (map.hasImage(id)) return
+  // 1x1 の透明画像。RGBA 4バイト。
+  map.addImage(id, { width: 1, height: 1, data: new Uint8Array(4) })
+  if (!missingImages.has(id)) {
+    missingImages.add(id)
+    diag(`スプライトにアイコンが無い: ${id}`)
+  }
+}
+
+function renderHud(): void {
+  if (!DEBUG || !hudEl) return
+  const rows = GROUPS.filter((g) => g.on)
+    .map((g) => {
+      const ids = entriesOf(g.key)
+        .map((l) => l.spec.id)
+        .filter((id) => map.getLayer(id))
+      let n = -1
+      try {
+        n = ids.length ? map.queryRenderedFeatures({ layers: ids }).length : -1
+      } catch {
+        n = -2
+      }
+      return `${g.key}: ${n}`
+    })
+    .join('  ')
+  hudEl.innerHTML =
+    `<b>build ${__BUILD_TIME__}</b><br>` +
+    `zoom ${map.getZoom().toFixed(1)} · base ${base} · mobile ${isMobile} · ctxLost ${ctxLostCount}<br>` +
+    `sprite codes ${spriteCodes.size}<br>` +
+    `<u>rendered features / group</u><br>${rows || '(none)'}<br>` +
+    `<u>missing icons</u><br>${[...missingImages].join(', ') || '(none)'}<br>` +
+    `<u>log</u><br>${diagLog.join('<br>')}`
+}
+
+function initHud(): void {
+  if (!DEBUG) return
+  hudEl = document.createElement('div')
+  hudEl.id = 'diag-hud'
+  document.body.append(hudEl)
+  renderHud()
+  map.on('render', () => {
+    if (map.areTilesLoaded()) renderHud()
+  })
+}
+
+// ---- データ層の投入 ----
+// 背景スタイルを差し替えると全レイヤーが消えるため、切替のたびに貼り直す。
+
+let tilesOk = false
+
+/**
+ * PMTiles が置かれているか先に確かめる。無いまま貼ると白画面のまま黙るため、
+ * ビルド手順を促すメッセージを出す。
+ */
+async function ensureTiles(): Promise<boolean> {
+  if (tilesOk) return true
   try {
-    // 中身を確認してから追加する。タイルが無いときに白画面のまま黙るのを避ける。
-    const res = await fetch(`${import.meta.env.BASE_URL}road_ledger.pmtiles`, { method: 'HEAD' });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  } catch (e) {
+    const res = await fetch(TILES_HREF, { method: 'HEAD' })
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    tilesOk = true
+    setStatus('')
+  } catch {
     setStatus(
       'road_ledger.pmtiles を読み込めませんでした。リポジトリ直下で scripts/build.sh を実行してから npm run dev し直してください。',
       true,
-    );
-    return;
+    )
   }
+  return tilesOk
+}
 
-  map.addSource(SOURCE_ID, { type: 'vector', url: TILES });
-
-  for (const def of LAYERS) {
-    for (const spec of def.spec) map.addLayer(spec);
+function addDataLayers(): void {
+  for (const [id, src] of Object.entries(SOURCES)) {
+    if (!map.getSource(id)) map.addSource(id, src)
   }
-
-  buildLayerToggles();
-  setStatus('');
-
-  // タイルの範囲へ寄せる
-  const src = map.getSource(SOURCE_ID) as maplibregl.VectorTileSource | undefined;
-  const bounds = src?.bounds;
-  if (bounds && bounds.length === 4) {
-    map.fitBounds(bounds as [number, number, number, number], { padding: 40, duration: 0 });
+  for (const entry of LAYERS) {
+    if (map.getLayer(entry.spec.id)) continue
+    const g = groupOf(entry.group)
+    map.addLayer({
+      ...entry.spec,
+      layout: { ...(entry.spec as { layout?: object }).layout, visibility: g.on ? 'visible' : 'none' },
+    } as maplibregl.LayerSpecification)
+    applyOpacity(entry, g.opacity)
   }
-});
+}
 
-map.on('error', (e) => {
-  // タイル1枚の失敗で常時エラー表示にはしない
-  if (e?.error?.message) console.warn(e.error.message);
-});
-
-// ---- レイヤー切替 ----
-function buildLayerToggles() {
-  const box = document.getElementById('layers') as HTMLElement;
-  box.innerHTML = '';
-
-  for (const def of LAYERS) {
-    const id = `toggle-${def.id}`;
-    const row = document.createElement('label');
-    row.className = 'toggle';
-    row.innerHTML = `
-      <input type="checkbox" id="${id}" checked />
-      <span class="swatch" style="background:${def.color}"></span>
-      <span class="toggle-label">${def.label}</span>`;
-    const input = row.querySelector('input') as HTMLInputElement;
-    input.addEventListener('change', () => {
-      for (const l of def.mapLayers) {
-        if (map.getLayer(l)) {
-          map.setLayoutProperty(l, 'visibility', input.checked ? 'visible' : 'none');
-        }
-      }
-    });
-    box.appendChild(row);
+function applyOpacity(entry: LayerEntry, factor: number): void {
+  if (!map.getLayer(entry.spec.id)) return
+  for (const [prop, basev] of Object.entries(entry.opacity)) {
+    map.setPaintProperty(entry.spec.id, prop, basev * factor)
   }
+}
 
-  const setAll = (on: boolean) => {
-    for (const def of LAYERS) {
-      const input = document.getElementById(`toggle-${def.id}`) as HTMLInputElement;
-      input.checked = on;
-      input.dispatchEvent(new Event('change'));
+function setGroupVisible(g: LayerGroup, on: boolean): void {
+  g.on = on
+  for (const entry of entriesOf(g.key)) {
+    if (map.getLayer(entry.spec.id)) {
+      map.setLayoutProperty(entry.spec.id, 'visibility', on ? 'visible' : 'none')
     }
-  };
-  (document.getElementById('all-on') as HTMLElement).onclick = () => setAll(true);
-  (document.getElementById('all-off') as HTMLElement).onclick = () => setAll(false);
+  }
+  const item = layersDiv.querySelector<HTMLElement>(`.layer-item[data-key="${g.key}"]`)
+  item?.querySelector<HTMLElement>('.layer-opacity')?.toggleAttribute('hidden', !on)
 }
 
-// ---- ポップアップ ----
-const ALL_MAP_LAYERS = LAYERS.flatMap((d) => d.mapLayers);
-
-map.on('click', (e) => {
-  const layers = ALL_MAP_LAYERS.filter((l) => map.getLayer(l));
-  if (layers.length === 0) return;
-
-  // クリック地点そのものだと点を取りこぼすので、少し広げて拾う
-  const r = 4;
-  const bbox: [maplibregl.PointLike, maplibregl.PointLike] = [
-    [e.point.x - r, e.point.y - r],
-    [e.point.x + r, e.point.y + r],
-  ];
-  const feats = map.queryRenderedFeatures(bbox, { layers });
-  if (feats.length === 0) return;
-
-  const html = feats
-    .slice(0, 10)
-    .map((f) => {
-      const props = f.properties ?? {};
-      const keys = Object.keys(props).sort((a, b) => {
-        const ia = PROP_ORDER.indexOf(a);
-        const ib = PROP_ORDER.indexOf(b);
-        return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
-      });
-      const rows = keys
-        .map(
-          (k) =>
-            `<tr><th>${escapeHtml(k)}</th><td>${escapeHtml(String(props[k]))}</td></tr>`,
-        )
-        .join('');
-      return `<div class="pop-item"><div class="pop-head">${escapeHtml(
-        String(f.sourceLayer ?? ''),
-      )}</div><table>${rows}</table></div>`;
-    })
-    .join('');
-
-  new maplibregl.Popup({ maxWidth: '320px' })
-    .setLngLat(e.lngLat)
-    .setHTML(`<div class="pop">${html}${feats.length > 10 ? '<p class="pop-more">ほか ' + (feats.length - 10) + ' 件</p>' : ''}</div>`)
-    .addTo(map);
-});
-
-map.on('mousemove', (e) => {
-  const layers = ALL_MAP_LAYERS.filter((l) => map.getLayer(l));
-  if (layers.length === 0) return;
-  const hit = map.queryRenderedFeatures(e.point, { layers }).length > 0;
-  map.getCanvas().style.cursor = hit ? 'pointer' : '';
-});
-
-function escapeHtml(s: string) {
-  return s.replace(/[&<>"']/g, (c) => {
-    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string;
-  });
+function setGroupOpacity(g: LayerGroup, v: number): void {
+  g.opacity = v
+  for (const entry of entriesOf(g.key)) applyOpacity(entry, v)
 }
+
+// ---- タイルの範囲へ寄せる ----
+// URL に位置が入っている場合（共有リンク・リロード）は、そちらを尊重して動かさない。
+let fitted = Boolean(location.hash)
+
+function fitToTiles(): void {
+  if (fitted) return
+  const src = map.getSource(SOURCE_ID) as maplibregl.VectorTileSource | undefined
+  const b = src?.bounds
+  if (!b || b.length !== 4) return
+  fitted = true
+  map.fitBounds(b as [number, number, number, number], { padding: 40, duration: 0 })
+}
+
+// bounds は TileJSON を読み終えて初めて入るため、ソースの読み込み完了を待つ。
+map.on('sourcedata', (ev) => {
+  if (ev.sourceId === SOURCE_ID) fitToTiles()
+})
+
+// ---- テーマ切替 ----
+const themeBtn = document.getElementById('theme-btn') as HTMLButtonElement
+const renderThemeBtn = (): void => {
+  themeBtn.textContent = theme === 'dark' ? '☀️' : '🌙'
+}
+
+// ラスタ（写真）↔ベクタ（淡色・標準）の切替では diff 適用が効かないため diff:false で
+// 完全に再構築する。setStyle 直後は isStyleLoaded() が旧スタイルで true を返して
+// 競合するため、新スタイルが落ち着く idle を待ってからデータ層を貼り直す。
+async function reloadStyle(): Promise<void> {
+  // テーマで道路台帳図側の色も入れ替わるため、レイヤー定義を組み立て直す
+  LAYERS = buildLayers(theme, spriteCodes)
+  map.setStyle(await getBasemapStyle(base, theme), { diff: false })
+  map.once('idle', () => {
+    if (tilesOk) addDataLayers()
+  })
+}
+
+themeBtn.addEventListener('click', () => {
+  theme = theme === 'dark' ? 'light' : 'dark'
+  applyThemeAttr(theme)
+  renderThemeBtn()
+  void reloadStyle()
+})
 
 // ---- パネル開閉 ----
-const panelBody = document.getElementById('panel-body') as HTMLElement;
-const collapseBtn = document.getElementById('collapse-btn') as HTMLButtonElement;
+const panel = document.getElementById('panel') as HTMLElement
+const collapseBtn = document.getElementById('collapse-btn') as HTMLButtonElement
+const renderCollapseBtn = (): void => {
+  collapseBtn.textContent = panel.classList.contains('collapsed') ? '▾' : '▴'
+}
 collapseBtn.addEventListener('click', () => {
-  const hidden = panelBody.classList.toggle('is-hidden');
-  collapseBtn.textContent = hidden ? '▾' : '▴';
-});
-collapseBtn.textContent = '▴';
+  panel.classList.toggle('collapsed')
+  renderCollapseBtn()
+})
+
+// ---- レイヤートグル ----
+const layersDiv = document.getElementById('layers') as HTMLElement
+
+function buildToggles(): void {
+  for (const g of GROUPS) {
+    const item = document.createElement('div')
+    item.className = 'layer-item'
+    item.dataset.key = g.key
+
+    const label = document.createElement('label')
+    label.className = 'toggle'
+
+    const input = document.createElement('input')
+    input.type = 'checkbox'
+    input.checked = g.on
+    input.addEventListener('change', () => setGroupVisible(g, input.checked))
+
+    const sw = document.createElement('span')
+    sw.className = 'switch'
+    const text = document.createElement('span')
+    text.className = 't-label'
+    text.textContent = g.name
+
+    const desc = document.createElement('div')
+    desc.className = 'layer-desc'
+    desc.hidden = true
+    desc.textContent = g.desc
+
+    const info = document.createElement('button')
+    info.type = 'button'
+    info.className = 'info-btn'
+    info.textContent = 'i'
+    info.setAttribute('aria-label', `${g.name}の説明`)
+    info.setAttribute('aria-expanded', 'false')
+    info.addEventListener('click', (ev) => {
+      // label 内のボタン。クリックが checkbox のトグルへ波及しないようにする
+      ev.preventDefault()
+      ev.stopPropagation()
+      const open = desc.hidden
+      desc.hidden = !open
+      info.setAttribute('aria-expanded', String(open))
+    })
+
+    label.append(input, sw, text, info)
+
+    const opac = document.createElement('div')
+    opac.className = 'layer-opacity'
+    opac.hidden = !g.on
+    const range = document.createElement('input')
+    range.type = 'range'
+    range.min = '0'
+    range.max = '1'
+    range.step = '0.05'
+    range.value = String(g.opacity)
+    range.setAttribute('aria-label', `${g.name}の不透明度`)
+    const val = document.createElement('span')
+    val.className = 'op-val'
+    val.textContent = `${Math.round(g.opacity * 100)}%`
+    range.addEventListener('input', () => {
+      const v = Number(range.value)
+      val.textContent = `${Math.round(v * 100)}%`
+      setGroupOpacity(g, v)
+    })
+    opac.append(range, val)
+
+    item.append(label, desc, opac)
+    layersDiv.append(item)
+  }
+}
+
+function setAll(on: boolean): void {
+  for (const g of GROUPS) {
+    if (g.on === on) continue
+    const input = layersDiv.querySelector<HTMLInputElement>(`.layer-item[data-key="${g.key}"] input[type=checkbox]`)
+    if (input) input.checked = on
+    setGroupVisible(g, on)
+  }
+}
+;(document.getElementById('all-on') as HTMLButtonElement).addEventListener('click', () => setAll(true))
+;(document.getElementById('all-off') as HTMLButtonElement).addEventListener('click', () => setAll(false))
+
+// ---- 背景地図スイッチャー（右下） ----
+class BasemapControl implements maplibregl.IControl {
+  private el!: HTMLElement
+  onAdd(): HTMLElement {
+    this.el = document.createElement('div')
+    this.el.className = 'maplibregl-ctrl basemap-switch'
+    const defs: [Basemap, string][] = [
+      ['pale', '淡色'],
+      ['std', '標準'],
+      ['photo', '写真'],
+      ['blank', '白図'],
+    ]
+    for (const [b, label] of defs) {
+      const btn = document.createElement('button')
+      btn.type = 'button'
+      btn.textContent = label
+      btn.dataset.base = b
+      btn.setAttribute('aria-selected', String(b === base))
+      btn.addEventListener('click', () => setBase(b))
+      this.el.append(btn)
+    }
+    return this.el
+  }
+  onRemove(): void {
+    this.el.remove()
+  }
+  sync(): void {
+    for (const btn of this.el.querySelectorAll<HTMLButtonElement>('button')) {
+      btn.setAttribute('aria-selected', String(btn.dataset.base === base))
+    }
+  }
+}
+const basemapCtrl = new BasemapControl()
+map.addControl(basemapCtrl, 'bottom-right')
+
+function setBase(next: Basemap): void {
+  if (next === base) return
+  base = next
+  basemapCtrl.sync()
+  void reloadStyle()
+}
+
+// ---- 地物取得の対象レイヤー ----
+const visibleLayerIds = (): string[] =>
+  LAYERS.filter((l) => groupOf(l.group).on)
+    .map((l) => l.spec.id)
+    .filter((id) => map.getLayer(id))
+
+/**
+ * 同じ地物を2回返すレイヤーを除く。
+ *   `_outline` … 面は塗りと輪郭の2レイヤーで描いているため、塗りだけを見る
+ *   `_elev`    … 標高値のラベルは記号・方向・線と同じ地物を指すラベル専用レイヤー
+ */
+const queryLayerIds = (): string[] =>
+  visibleLayerIds().filter((id) => !id.endsWith('_outline') && !id.endsWith('_elev'))
+
+/** クリック地点そのものだと点を取りこぼすので、少し広げて拾う。 */
+const HIT_RADIUS_PX = 4
+
+const hitBox = (p: maplibregl.Point): [maplibregl.PointLike, maplibregl.PointLike] => [
+  [p.x - HIT_RADIUS_PX, p.y - HIT_RADIUS_PX],
+  [p.x + HIT_RADIUS_PX, p.y + HIT_RADIUS_PX],
+]
+
+// ---- ホバーカーソル（マウス環境のみ） ----
+if (window.matchMedia('(hover: hover)').matches) {
+  map.on('mousemove', (ev) => {
+    const ids = queryLayerIds()
+    const hit = ids.length > 0 && map.queryRenderedFeatures(hitBox(ev.point), { layers: ids }).length > 0
+    map.getCanvas().style.cursor = hit ? 'pointer' : ''
+  })
+}
+
+// ---- クリックポップアップ ----
+let popup: maplibregl.Popup | null = null
+map.on('click', (ev) => {
+  const ids = queryLayerIds()
+  const feats = ids.length ? map.queryRenderedFeatures(hitBox(ev.point), { layers: ids }) : []
+  if (!feats.length) return
+
+  // タイル境界をまたぐ地物は、タイルごとに1回ずつ返る。同じレイヤーで属性が
+  // 完全に一致するものは1件にまとめてこれを抑える。
+  const seen = new Set<string>()
+  const items: PopupItem[] = []
+  for (const f of feats) {
+    const props = (f.properties ?? {}) as Record<string, unknown>
+    const key = `${f.layer.id}|${JSON.stringify(props)}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    const entry = LAYERS.find((l) => l.spec.id === f.layer.id)
+    items.push({ groupName: entry ? groupOf(entry.group).name : f.layer.id, props })
+  }
+
+  if (popup) {
+    const old = popup
+    popup = null
+    old.remove()
+  }
+  const p = new maplibregl.Popup({ closeButton: true, maxWidth: '320px' })
+    .setLngLat(ev.lngLat)
+    .setHTML(popupHtml(items.slice(0, POPUP_MAX_ITEMS), items.length))
+    .addTo(map)
+  p.on('close', () => {
+    if (popup === p) popup = null
+  })
+  popup = p
+})
+
+// ---- 初期化 ----
+const buildEl = document.getElementById('build-ver')
+if (buildEl) buildEl.textContent = `build: ${__BUILD_TIME__}`
+renderThemeBtn()
+buildToggles()
+// スマホでは初期状態でパネルを畳んで地図を広く見せる
+if (isMobile) panel.classList.add('collapsed')
+renderCollapseBtn()
+map.on('styleimagemissing', (ev) => handleMissingImage(ev.id))
+map.on('load', async () => {
+  if (await ensureTiles()) addDataLayers()
+})
+initHud()
+
+// WebGL コンテキスト消失からの復帰。iOS Safari 等ではメモリ逼迫時に GL コンテキストが
+// 失われ、データ層がまるごと消えて戻らないことがある。復帰時に貼り直して自動回復する。
+const canvas = map.getCanvas()
+canvas.addEventListener(
+  'webglcontextlost',
+  (ev) => {
+    // preventDefault しないと自動復帰イベントが発火しない
+    ev.preventDefault()
+    ctxLostCount++
+    diag('WebGL context lost')
+  },
+  false,
+)
+canvas.addEventListener(
+  'webglcontextrestored',
+  () => {
+    diag('WebGL context restored → relayering')
+    if (!tilesOk) return
+    if (map.isStyleLoaded()) addDataLayers()
+    else map.once('idle', addDataLayers)
+  },
+  false,
+)
+
+map.on('error', (ev) => {
+  const msg = (ev && (ev as unknown as { error?: Error }).error?.message) || 'map error'
+  diag(`error: ${msg}`)
+})
+
+// デバッグ/外部連携用にマップを公開
+;(window as unknown as { __map: maplibregl.Map }).__map = map
+
+// PWA: Service Worker 登録（本番のみ。dev では HMR を妨げないよう無効）
+if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`).catch(() => {})
+  })
+  let refreshing = false
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (refreshing) return
+    refreshing = true
+    window.location.reload()
+  })
+}

@@ -4,7 +4,15 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
   <title>道路台帳図ビューワ</title>
-  <meta name="description" content="道路台帳図（DMデータ）をGeoJSON経由でベクトルタイル化して表示するビューワ" />
+  <meta name="description" content="道路台帳平面図（DMデータ）をGeoJSON経由でベクトルタイル化して表示するビューワ" />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <meta name="theme-color" content="#2a78d6" />
+  <link rel="icon" type="image/svg+xml" href="icon.svg" />
+  <link rel="apple-touch-icon" href="icon.svg" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="道路台帳図" />
 </head>
 <body>
   <div id="map"></div>
@@ -17,7 +25,10 @@
         <span class="brand-mark" aria-hidden="true">🛣️</span>
         <h1>道路台帳図ビューワ</h1>
       </div>
-      <button id="collapse-btn" class="icon-btn" type="button" title="パネル開閉" aria-label="パネル開閉"></button>
+      <div class="head-actions">
+        <button id="theme-btn" class="icon-btn" type="button" title="テーマ切替" aria-label="テーマ切替"></button>
+        <button id="collapse-btn" class="icon-btn" type="button" title="パネル開閉" aria-label="パネル開閉"></button>
+      </div>
     </header>
 
     <div id="panel-body" class="panel-body">
@@ -36,8 +47,10 @@
 
     <footer class="panel-foot">
       <p class="disclaimer">個人が作成したビューワであり、道路管理者の公式サイトではありません。</p>
+      データ: 道路台帳平面図のDMデータ（測量成果です。公開・配布は提供元の利用条件に従ってください）<br />
+      背景: <a href="https://github.com/gsi-cyberjapan/optimal_bvmap" target="_blank" rel="noopener">国土地理院 最適化ベクトルタイル</a> / <a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noopener">地理院タイル</a><br />
       変換: <a href="https://github.com/shiwaku/dm-road-ledger-converter" target="_blank" rel="noopener">dm-road-ledger-converter</a><br />
-      背景: <a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noopener">地理院タイル</a>
+      <span id="build-ver" class="build-ver"></span>
     </footer>
   </section>
 
