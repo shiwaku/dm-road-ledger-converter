@@ -207,15 +207,46 @@ const ELEV_LABEL = ['to-string', ['get', 'Elev']]
 // 大きさを測り直すときは dm-sprite の tools/inspect_icons.py と、
 // PDF図面との突き合わせ（CLAUDE.md の確認項目4）を使う。
 
-const iconSize = (z1: number, s1: number, z2: number, s2: number): unknown[] => [
-  'interpolate',
-  ['linear'],
-  ['zoom'],
-  z1,
-  s1,
-  z2,
-  s2,
-]
+// ---- 地上サイズ固定 ----
+//
+// 紙の図面は 1:500 で固定なので、記号や文字の「地上での大きさ」が変わらない。
+// 画面ピクセル固定にすると、拡大するほど図面より小さく、縮小するほど大きくなる。
+// 標高値の文字は z19 で地上1.35m、z20 で0.74m、z21 で0.37m と動いていた
+// （図面は常に0.99m）。ズームを上げると小さく見えるのはこれが原因。
+//
+// そこで指数2の補間にして、ズーム1段ごとに画面ピクセルを倍にする。これで
+// 地上サイズが不変になり、図面と同じ見え方になる。
+//
+// z19 の1画素は緯度34.78度で 0.1226m（MapLibre は512pxタイルなので
+// 156543.03392×cos(lat)/2^z/2）。したがって 1m ＝ 8.157px。
+//
+// 上下は自動で頭打ちになる。MapLibre は補間の範囲外を端の値で止めるため、
+// z19未満は z19 の値、z21超は z21 の値のまま。低ズームで潰れず、
+// 高ズームで無限に大きくならない。
+
+/** z19 で地上1メートルに相当する画面ピクセル数。 */
+const PX_PER_M_Z19 = 8.157
+
+/**
+ * 地上 `meters` メートルを保つサイズの式。
+ *
+ * @param meters  図面での地上サイズ（PDF図面の実測値を使う）
+ * @param floorPx 小さすぎて読めなくなるのを防ぐ下限。地上サイズより優先する
+ */
+const groundSize = (meters: number, floorPx = 8): unknown[] => {
+  const px19 = Math.max(Math.round(meters * PX_PER_M_Z19 * 10) / 10, floorPx)
+  return ['interpolate', ['exponential', 2], ['zoom'], 19, px19, 21, px19 * 4]
+}
+
+/**
+ * アイコンの大きさ。`icon-size` は倍率なので px ではなく倍率で書く。
+ *
+ * z19 での見た目は変えず（倍率1.0）、ズームに対して地上サイズを保つようにする。
+ * 図面との比率はコードごとに 1.5〜6.6倍とばらついたままで、これは
+ * dm-sprite のインクの大きさが揃っていないことに由来する（Issue #13、dm-sprite#15）。
+ * 地上サイズ固定にすると、この比率がどのズームでも一定になる。
+ */
+const ICON_SIZE: unknown[] = ['interpolate', ['exponential', 2], ['zoom'], 19, 1, 21, 4]
 
 /** 分類コードからスプライトのアイコン名を組み立てる式。 */
 const ICON_IMAGE = ['concat', `${DM_SPRITE_ID}:dm-`, ['to-string', ['get', 'Code']]]
@@ -294,7 +325,8 @@ export function buildLayers(theme: Theme, spriteCodes: Set<string>): LayerEntry[
         layout: {
           'text-field': ELEV_LABEL as never,
           'text-font': TEXT_FONT,
-          'text-size': ['interpolate', ['linear'], ['zoom'], 17, 9, 20, 12],
+          // PDF図面の標高値は 5.64pt ＝ 地上0.99m
+          'text-size': groundSize(0.99) as never,
           'symbol-placement': 'line',
           // 等高線のラベルは間引かないと重なって読めなくなるため、衝突判定に任せる
           'text-allow-overlap': false,
@@ -319,7 +351,8 @@ export function buildLayers(theme: Theme, spriteCodes: Set<string>): LayerEntry[
         minzoom: DETAIL_MINZOOM,
         filter: lacksIcon(spriteCodes) as never,
         paint: {
-          'circle-radius': ['interpolate', ['linear'], ['zoom'], 17, 2, 20, 4],
+          // z19 での見た目（半径3.3px）を保ったまま地上サイズ固定にする
+          'circle-radius': groundSize(0.41, 2) as never,
           'circle-color': ink.fill,
           'circle-opacity': 1,
           'circle-stroke-color': ink.line,
@@ -340,7 +373,7 @@ export function buildLayers(theme: Theme, spriteCodes: Set<string>): LayerEntry[
         filter: hasIcon(spriteCodes) as never,
         layout: {
           'icon-image': ICON_IMAGE as never,
-          'icon-size': iconSize(17, 0.6, 20, 1.2) as never,
+          'icon-size': ICON_SIZE as never,
           // 測量成果として決まった位置に置かれるものなので、衝突判定で間引かせず全部描く
           'icon-allow-overlap': true,
           'icon-ignore-placement': true,
@@ -361,7 +394,7 @@ export function buildLayers(theme: Theme, spriteCodes: Set<string>): LayerEntry[
         layout: {
           'text-field': ELEV_LABEL as never,
           'text-font': TEXT_FONT,
-          'text-size': ['interpolate', ['linear'], ['zoom'], 17, 9, 20, 12],
+          'text-size': groundSize(0.99) as never,   // PDF図面の標高値と同じ地上0.99m
           // 記号に重ならないよう右上へずらす
           'text-anchor': 'left',
           'text-offset': [0.6, -0.6],
@@ -390,7 +423,8 @@ export function buildLayers(theme: Theme, spriteCodes: Set<string>): LayerEntry[
         layout: {
           'text-field': DIRECTION_ARROW,
           'text-font': TEXT_FONT,
-          'text-size': ['interpolate', ['linear'], ['zoom'], 17, 10, 20, 16],
+          // 図面に代替矢印は無いので、z19 での見た目（14px）を基準に地上固定にする
+          'text-size': groundSize(1.72) as never,
           'text-rotate': ICON_ROTATE as never,
           'text-rotation-alignment': 'map',
           'text-allow-overlap': true,
@@ -416,7 +450,7 @@ export function buildLayers(theme: Theme, spriteCodes: Set<string>): LayerEntry[
         filter: hasIcon(spriteCodes) as never,
         layout: {
           'icon-image': ICON_IMAGE as never,
-          'icon-size': iconSize(17, 0.6, 20, 1.2) as never,
+          'icon-size': ICON_SIZE as never,
           'icon-rotate': ICON_ROTATE as never,
           'icon-rotation-alignment': 'map',
           'icon-allow-overlap': true,
@@ -438,7 +472,7 @@ export function buildLayers(theme: Theme, spriteCodes: Set<string>): LayerEntry[
         layout: {
           'text-field': ELEV_LABEL as never,
           'text-font': TEXT_FONT,
-          'text-size': ['interpolate', ['linear'], ['zoom'], 17, 9, 20, 12],
+          'text-size': groundSize(0.99) as never,   // PDF図面の標高値と同じ地上0.99m
           // 記号に重ならないよう右上へずらす
           'text-anchor': 'left',
           'text-offset': [0.6, -0.6],
@@ -465,7 +499,17 @@ export function buildLayers(theme: Theme, spriteCodes: Set<string>): LayerEntry[
         layout: {
           'text-field': ['coalesce', ['get', 'Text'], ''] as never,
           'text-font': TEXT_FONT,
-          'text-size': ['interpolate', ['linear'], ['zoom'], 17, 10, 20, 14],
+          // 字高はPDF図面の実測値（分類コード別）。既定は建物名などの 1.50m
+          'text-size': [
+            'match',
+            ['to-string', ['get', 'Code']],
+            '8114', groundSize(2.25),   // 町丁目名
+            '8164', groundSize(1.75),
+            '8181', groundSize(0.99),
+            '8173', groundSize(0.75),   // 等高線の標高注記
+            '8144', groundSize(0.5),
+            groundSize(1.5),            // 8135 建物名・8136 ビル名など
+          ] as never,
           // 注記（E7）の代表点は文字列の書き出し位置。既定の center だと文字列長の
           // 半分だけ西へずれる（豊中サンプルの横書き39件で、PDF図面の文字列左端との
           // 東西差が中央値0.32m、中央との差が7.28m）。左端合わせにして図面に揃える。
