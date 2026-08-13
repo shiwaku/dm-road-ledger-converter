@@ -8,7 +8,8 @@
     "copy:tiles": "node scripts/copy-tiles.mjs",
     "dev": "npm run copy:tiles && vite",
     "build": "npm run copy:tiles && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "check:codes": "node scripts/check-codes.mjs"
   },
   "dependencies": {
     "maplibre-gl": "^5.15.0",
