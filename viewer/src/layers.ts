@@ -486,6 +486,14 @@ export function buildLayers(theme: Theme, spriteCodes: Set<string>): LayerEntry[
           'text-field': ['coalesce', ['get', 'Text'], ''] as never,
           'text-font': TEXT_FONT,
           'text-size': ['interpolate', ['linear'], ['zoom'], 17, 10, 20, 14],
+          // 注記（E7）の代表点は文字列の書き出し位置。既定の center だと文字列長の
+          // 半分だけ西へずれる（豊中サンプルの横書き39件で、PDF図面の文字列左端との
+          // 東西差が中央値0.32m、中央との差が7.28m）。左端合わせにして図面に揃える。
+          // 回転はアンカー基準なので、角度付きの注記もそのまま合う。
+          // 複数行（￥を改行にしたもの）は text-justify の既定が center で行が
+          // 中央揃えになるため、左揃えも明示する。
+          'text-anchor': 'left',
+          'text-justify': 'left',
           'text-rotate': TEXT_ROTATE as never,
           'text-rotation-alignment': 'map',
           'text-allow-overlap': true,
