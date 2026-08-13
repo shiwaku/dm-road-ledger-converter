@@ -11,6 +11,7 @@
 // -----------------------------------------
 import type { LayerSpecification, SourceSpecification } from 'maplibre-gl'
 import { DM_SPRITE_ID } from './basemap'
+import { codeName } from './dmCodes'
 import type { Theme } from './theme'
 
 export const SOURCE_ID = 'road-ledger'
@@ -568,8 +569,9 @@ const orderOf = (key: string): number => {
  * クリック時のポップアップ本文。重なっている地物をすべて並べる。
  * 地物が1件なら見出しはグループ名、複数なら件数を出す。
  *
- * 分類コードに名称は併記しない。道路台帳図の分類コードは自治体・測量ベンダーに
- * よって運用が異なり、全国共通の対応表が無いため（基本図ビューワとの差はここだけ）。
+ * 分類コードの直後に名称を併記する（dmCodes.ts）。コードだけでは地物種別が分からない。
+ * 道路台帳図には標準図式に無い自治体固有コードが混ざるため、そのときは
+ * 「（標準図式に記載なし）」と出す。豊中サンプルでは105コード中77コードに名称が付く。
  */
 export function popupHtml(items: PopupItem[], total = items.length): string {
   const row = (label: string, value: unknown): string =>
@@ -580,7 +582,12 @@ export function popupHtml(items: PopupItem[], total = items.length): string {
     const parts = Object.entries(props)
       .filter(([, v]) => v !== null && v !== undefined && v !== '')
       .sort(([a], [b]) => orderOf(a) - orderOf(b))
-      .map(([k, v]) => row(ATTR_LABELS[k] ?? k, v))
+      .flatMap(([k, v]) =>
+        // 分類コードの直後に名称を差し込む
+        k === 'Code'
+          ? [row(ATTR_LABELS.Code, v), row('名称', codeName(v) ?? '（標準図式に記載なし）')]
+          : [row(ATTR_LABELS[k] ?? k, v)],
+      )
     // 複数件のときだけ、どの地物かを見出しで示す。
     const code =
       props.Code === undefined || props.Code === '' ? '' : ` — ${escapeHtml(props.Code)}`
