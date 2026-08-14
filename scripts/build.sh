@@ -15,8 +15,11 @@
 #   MAXZOOM=18       タイルの最大ズーム（既定: 18 = 地図情報レベル500）
 #   MINZOOM=15       タイルの最小ズーム（既定: 15）
 #   SKIP_CONVERT=1   DM→GeoJSON を飛ばし、既存の GeoJSON から後段だけ作り直す
+#   SKIP_CHECK=1     分類コードの点検を飛ばす（ネットワークが要るため）
 #   SKIP_PARQUET=1   GeoParquet を作らない
 #   SKIP_TILES=1     MBTiles / PMTiles を作らない
+#
+#   VITE_DM_PROVIDERS=...  点検で使う拡張DMの提供元（既定はビューワと同じ）
 #
 set -euo pipefail
 
@@ -118,7 +121,20 @@ for kv in "${KINDS[@]}"; do
   fi
 done
 
-# ---- 2. GeoJSON → GeoParquet ----
+# ---- 2. 分類コードの点検 ----
+# 道路台帳図には標準図式に無い自治体固有のコードが混ざる（豊中サンプルで28コード・860件）。
+# 混ざること自体は普通のことなのでビルドは止めない。ただし、拡張DMのアイコンを
+# 持っているのに提供元を指定していない場合は**エラーにならないまま丸に落ちる**ので、
+# 最後にまとめて注意を出す。
+CHECK_RC=0
+if [ "${SKIP_CHECK:-}" = "1" ]; then
+  echo "分類コードの点検をスキップ"
+else
+  log "分類コードの点検"
+  node "$ROOT/scripts/check-extended-codes.mjs" || CHECK_RC=$?
+fi
+
+# ---- 3. GeoJSON → GeoParquet ----
 if [ "${SKIP_PARQUET:-}" = "1" ]; then
   echo "GeoParquet をスキップ"
 elif find_ogr2ogr; then
@@ -143,7 +159,14 @@ else
   echo "（OSGeo4W を入れるか、pip install geopandas pyarrow してください）"
 fi
 
-# ---- 3. GeoJSON → MBTiles → PMTiles ----
+# 点検の結果はビルドの成否と別なので、途中で抜ける経路でも必ず出す。
+report_check() {
+  [ "$CHECK_RC" = "1" ] && printf '\n\033[1m!! 拡張DMコードの提供元が指定から漏れています（上の点検を参照）\033[0m\n'
+  return 0
+}
+trap report_check EXIT
+
+# ---- 4. GeoJSON → MBTiles → PMTiles ----
 if [ "${SKIP_TILES:-}" = "1" ]; then
   echo "タイル生成をスキップ"
   exit 0
