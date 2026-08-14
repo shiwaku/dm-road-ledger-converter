@@ -33,10 +33,27 @@ export const TILES_HREF = PMTILES_BASE
   ? `${PMTILES_BASE.replace(/\/$/, '')}/road_ledger.pmtiles`
   : new URL(`${import.meta.env.BASE_URL}road_ledger.pmtiles`, location.href).href
 
+/**
+ * 道路台帳図データの帰属表示。
+ *
+ * **背景地図ではなくデータ側に付ける。** 白図（`blankStyle`）は `sources: {}` で
+ * 帰属を持つソースが1つも無いため、ここが無いと表示する文字列が空になり、
+ * MapLibre が帰属コントロールごと隠す（`maplibregl-attrib-empty`）。
+ * 右下の ⓘ が背景を切り替えたときだけ消える、という挙動になっていた。
+ *
+ * 出典の具体名（自治体名）は入れない。表示するPMTilesは利用者が
+ * `scripts/build.sh` で焼いたもので、どのデータかはここでは分からないため。
+ * パネル下部の脚注に利用条件を書いてある。
+ */
+const ATTRIBUTION =
+  '道路台帳平面図（DM） / ' +
+  '<a href="https://github.com/shiwaku/dm-road-ledger-converter" target="_blank" rel="noopener">dm-road-ledger-converter</a>'
+
 export const SOURCES: Record<string, SourceSpecification> = {
   [SOURCE_ID]: {
     type: 'vector',
     url: `pmtiles://${TILES_HREF}`,
+    attribution: ATTRIBUTION,
   },
 }
 
