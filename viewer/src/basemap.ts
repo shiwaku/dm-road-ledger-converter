@@ -106,19 +106,33 @@ export const DM_SPRITE_ID = 'dm'
 const ICON_PREFIX = 'dm-'
 
 /**
- * 追加で引く拡張DMの提供元。カンマ区切りで、書いた順に優先する。
+ * 同梱の検証データ向けの既定。
  *
- *   VITE_DM_PROVIDERS=toyonaka npm run dev
+ * `public/road_ledger.pmtiles` は豊中市サンプル（図郭57-08）から焼いたものを
+ * コミットしてあり、GitHub Pages もこれを配信している。既定を空にすると、
+ * 同梱データを開いたときに拡張DMコードのアイコンが出ない
+ * （`4191` の82件・`2245` の5件）。**同梱データに合わせた既定を置く。**
  *
- * **既定は空（標準図式のアイコンだけを引く）。** 拡張DMコードの意匠は提供元ごとに
- * 違うので、指定なしで引くと別の提供元のデータに他所の意匠を当ててしまう
- * （dm-sprite#20 で整理された問題）。表示するPMTilesがどの提供元のものかは
- * ビューワからは分からないため、利用者に明示してもらう。
+ * **別の自治体のDMを焼いて表示するときは、必ず `VITE_DM_PROVIDERS` で
+ * 上書きするか空にすること。** そのままだと豊中市の意匠を他所のデータに当ててしまう。
+ */
+const DEFAULT_PROVIDERS = 'ext1,toyonaka'
+
+/**
+ * 拡張DMのアイコンを引く提供元。カンマ区切りで、書いた順に優先する。
  *
- * 指定しない場合、拡張DMコードはアイコンを引けず代替図形の丸で描かれる。
+ *   VITE_DM_PROVIDERS= npm run dev            標準図式のアイコンだけを引く
+ *   VITE_DM_PROVIDERS=toyonaka npm run dev    豊中市の区画も引く
+ *
+ * 拡張DMコードの意匠は提供元ごとに違うので、**表示するデータの提供元と一致して
+ * いなければ他所の意匠を当ててしまう**（dm-sprite#20 で整理された問題）。
+ * どの提供元のPMTilesかはビューワからは判定できないため、同梱データ向けの既定を
+ * 置いたうえで、違うデータを見るときは利用者に上書きしてもらう。
+ *
+ * 挙げなかった提供元の拡張DMコードはアイコンを引けず代替図形の丸で描かれる。
  * 位置は出るので地物が消えることはない。
  */
-const PROVIDERS: string[] = String(import.meta.env.VITE_DM_PROVIDERS ?? '')
+const PROVIDERS: string[] = String(import.meta.env.VITE_DM_PROVIDERS ?? DEFAULT_PROVIDERS)
   .split(',')
   .map((s) => s.trim())
   .filter(Boolean)
@@ -137,6 +151,30 @@ function splitIconName(name: string): { provider: string | null; code: string } 
   const rest = name.slice(ICON_PREFIX.length)
   const m = /^(?:(.+)-)?(\d+)$/.exec(rest)
   return m ? { provider: m[1] ?? null, code: m[2] } : null
+}
+
+/**
+ * 拡張DMコードを既存アイコンで代替する表。
+ *
+ * dm-sprite は「どんなアイコンが存在するか」だけを持ち、**どのコードをどのアイコンで
+ * 代替するかは、そのデータを扱う側の判断**という切り分けになっている
+ * （dm-sprite#22）。図面から起こした意匠が既存アイコンと同じなら、同じ絵を別のキーで
+ * 二重に配らず、利用側が既存のキーを指す。
+ *
+ * **提供元ごとに持つこと。** 別の自治体の同じコードは別物かもしれず、その判断は
+ * データを持っている側にしかできない。PROVIDERS に挙げた提供元の分だけが効く。
+ *
+ * 追加するときは、必ず図面での確認と出典を根拠として書き残す。
+ */
+const ICON_ALIASES: Record<string, Record<string, string>> = {
+  toyonaka: {
+    // 図面では丸囲みの「水」（㊌）。標準の 4161 マンホール（水道）と同一意匠で
+    // 描かれており、図面が両者を記号で描き分けていない（大きさは 4191 が 4161 の
+    // 73%だが、形は同じ）。dm-sprite 側は「図面に無い区別は発明しない」方針で
+    // 4191 のアイコンを作らないと決めたため、こちらで 4161 を指す。
+    // 出典: 豊中市サンプル 図郭57-08 の DM-_57-08.pdf（dm-sprite#22 で実測）
+    '4191': 'dm-4161',
+  },
 }
 
 interface SpriteEntry {
@@ -189,8 +227,27 @@ export async function loadSpriteIcons(): Promise<Map<string, string>> {
         if (e.provider === p && !icons.has(e.code)) icons.set(e.code, e.name)
       }
     }
+    // 最後に代替の表。スプライトに実体があるキーだけを採る（綴り間違いや、
+    // 参照先が消えた場合に、存在しないアイコンを要求して地物を消さないため）
+    const exists = new Set(parsed.map((e) => e.name))
+    for (const p of PROVIDERS) {
+      for (const [code, name] of Object.entries(ICON_ALIASES[p] ?? {})) {
+        if (icons.has(code)) continue
+        if (!exists.has(name)) {
+          console.warn(`[sprite] 代替先のアイコンがありません: ${code} → ${name}`)
+          continue
+        }
+        icons.set(code, name)
+      }
+    }
   } catch (e) {
     console.warn('[sprite] アイコン一覧を読めませんでした。記号・方向は代替図形で描きます', e)
+  }
+  if (import.meta.env.VITE_DM_PROVIDERS === undefined && PROVIDERS.length) {
+    console.info(
+      `[sprite] 拡張DMの提供元は既定の「${PROVIDERS.join(',')}」を使っています。` +
+        '別の自治体のデータを表示するときは VITE_DM_PROVIDERS で上書きしてください。',
+    )
   }
   return icons
 }
