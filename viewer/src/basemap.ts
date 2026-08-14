@@ -102,8 +102,42 @@ export type Basemap = 'pale' | 'std' | 'photo' | 'blank'
 export const DM_SPRITE_URL = 'https://shiwaku.github.io/dm-sprite/sprite'
 export const DM_SPRITE_ID = 'dm'
 
-/** dm-sprite のアイコン名の接頭辞。`dm-<分類コード>` の形式。 */
+/** dm-sprite のアイコン名の接頭辞。 */
 const ICON_PREFIX = 'dm-'
+
+/**
+ * 追加で引く拡張DMの提供元。カンマ区切りで、書いた順に優先する。
+ *
+ *   VITE_DM_PROVIDERS=toyonaka npm run dev
+ *
+ * **既定は空（標準図式のアイコンだけを引く）。** 拡張DMコードの意匠は提供元ごとに
+ * 違うので、指定なしで引くと別の提供元のデータに他所の意匠を当ててしまう
+ * （dm-sprite#20 で整理された問題）。表示するPMTilesがどの提供元のものかは
+ * ビューワからは分からないため、利用者に明示してもらう。
+ *
+ * 指定しない場合、拡張DMコードはアイコンを引けず代替図形の丸で描かれる。
+ * 位置は出るので地物が消えることはない。
+ */
+const PROVIDERS: string[] = String(import.meta.env.VITE_DM_PROVIDERS ?? '')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean)
+
+/**
+ * スプライトのキーを「提供元」と「分類コード」に分ける。
+ *
+ *   dm-4132           → { provider: null,       code: '4132' }   標準図式
+ *   dm-ext1-2245      → { provider: 'ext1',     code: '2245' }   拡張DM（提供元未特定）
+ *   dm-toyonaka-4191  → { provider: 'toyonaka', code: '4191' }   拡張DM（豊中市）
+ *
+ * 分類コードは数字だけなので、末尾の数字列をコード、その手前を提供元として切る
+ * （dm-sprite#23 の命名。`dm-ext1-9101100` のように7桁のものもある）。
+ */
+function splitIconName(name: string): { provider: string | null; code: string } | null {
+  const rest = name.slice(ICON_PREFIX.length)
+  const m = /^(?:(.+)-)?(\d+)$/.exec(rest)
+  return m ? { provider: m[1] ?? null, code: m[2] } : null
+}
 
 interface SpriteEntry {
   id: string
@@ -121,31 +155,48 @@ function withDmSprite(style: StyleSpecification): StyleSpecification {
 }
 
 /**
- * スプライトに収録されている分類コードの一覧を読む。
+ * スプライトの索引を読み、分類コードから引けるアイコン名の対応表を作る。
  *
  * 道路台帳図の記号・方向には、公共測量標準図式に無い自治体固有のコードが混ざる。
  * アイコンが無いコードを icon-image で要求すると何も描かれず、地物が黙って消える。
- * どのコードが描けるのかを起動時に確かめ、描けないコードだけフォールバックの図形で
- * 出す（フィルタは src/layers.ts で組み立てる）。
+ * どのコードが描けるのかを起動時に確かめ、描けないコードだけ代替図形で出す
+ * （フィルタと icon-image は src/layers.ts で組み立てる）。
  *
- * 読めなかった場合は空集合を返す。その場合は全コードがフォールバック側に回り、
+ * 標準図式のアイコンは常に使う。拡張DMは PROVIDERS に挙げた提供元のものだけを、
+ * 挙げた順に採る。**同じコードに標準と拡張の両方がある場合は標準を優先する。**
+ *
+ * 読めなかった場合は空の対応表を返す。その場合は全コードが代替図形に回り、
  * 見た目は素朴になるが地物が消えることはない。
+ *
+ * @returns 分類コード → スプライトのキー（`dm:` は付けない）
  */
-export async function loadSpriteCodes(): Promise<Set<string>> {
+export async function loadSpriteIcons(): Promise<Map<string, string>> {
+  const icons = new Map<string, string>()
   try {
     const res = await fetch(`${DM_SPRITE_URL}.json`)
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
     const index = (await res.json()) as Record<string, unknown>
-    return new Set(
-      Object.keys(index)
-        .filter((name) => name.startsWith(ICON_PREFIX))
-        .map((name) => name.slice(ICON_PREFIX.length)),
-    )
+    const parsed = Object.keys(index)
+      .filter((name) => name.startsWith(ICON_PREFIX))
+      .map((name) => ({ name, ...(splitIconName(name) ?? { provider: undefined, code: '' }) }))
+      .filter((e) => e.code && e.provider !== undefined)
+    // 標準図式 → 指定された提供元の順。先に入ったものを優先する
+    for (const e of parsed) {
+      if (e.provider === null) icons.set(e.code, e.name)
+    }
+    for (const p of PROVIDERS) {
+      for (const e of parsed) {
+        if (e.provider === p && !icons.has(e.code)) icons.set(e.code, e.name)
+      }
+    }
   } catch (e) {
     console.warn('[sprite] アイコン一覧を読めませんでした。記号・方向は代替図形で描きます', e)
-    return new Set()
   }
+  return icons
 }
+
+/** ?debug の HUD 用。どの提供元を引いているかを出す。 */
+export const spriteProviders = (): string[] => PROVIDERS
 
 /**
  * 注記に使うグリフの配信元。

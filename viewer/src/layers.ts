@@ -476,8 +476,27 @@ function strokeLayers(
  */
 const FALLBACK_RADIUS = groundSize(0.5, 2)
 
-/** 分類コードからスプライトのアイコン名を組み立てる式。 */
-const ICON_IMAGE = ['concat', `${DM_SPRITE_ID}:dm-`, ['to-string', ['get', 'Code']]]
+/**
+ * 分類コードからスプライトのアイコン名を組み立てる式。
+ *
+ * 標準図式は `dm-<コード>` なので連結で足りるが、拡張DMは提供元の区画が挟まる
+ * （`dm-ext1-2245`・`dm-toyonaka-4191`。dm-sprite#23）。区画つきのものだけを
+ * `match` で先に拾い、残りは連結で組む。
+ *
+ * 区画を無視して連結だけで引くと、改名された拡張DMのアイコンが引けなくなる。
+ * 消えはしない（レイヤーの振り分けで代替図形に回る）が、静かに劣化する。
+ */
+const iconImage = (icons: Map<string, string>): unknown[] => {
+  const plain = ['concat', `${DM_SPRITE_ID}:dm-`, ['to-string', ['get', 'Code']]]
+  const scoped = [...icons].filter(([code, name]) => name !== `dm-${code}`)
+  if (!scoped.length) return plain
+  return [
+    'match',
+    ['to-string', ['get', 'Code']],
+    ...scoped.flatMap(([code, name]) => [code, `${DM_SPRITE_ID}:${name}`]),
+    plain,
+  ]
+}
 
 /**
  * スプライトにアイコンがあるコードかどうかのフィルタ。
@@ -495,10 +514,12 @@ const lacksIcon = (codes: Set<string>): unknown[] => ['!', hasIcon(codes)]
  * 描画順に並べたレイヤー定義。
  *
  * @param theme  線・文字の色をテーマで入れ替えるため
- * @param spriteCodes  スプライトが持っている分類コード（basemap.ts の loadSpriteCodes）
+ * @param spriteIcons  分類コード → スプライトのキー（basemap.ts の loadSpriteIcons）
  */
-export function buildLayers(theme: Theme, spriteCodes: Set<string>): LayerEntry[] {
+export function buildLayers(theme: Theme, spriteIcons: Map<string, string>): LayerEntry[] {
   const ink = inkFor(theme)
+  const spriteCodes = new Set(spriteIcons.keys())
+  const ICON_IMAGE = iconImage(spriteIcons)
   return [
     // 面の塗り。PDF図面は面を塗らない（白図に黒線だけ）ので既定では見せない。
     // レイヤー自体は残す。クリックで面の属性を拾う当たり判定になっているため
