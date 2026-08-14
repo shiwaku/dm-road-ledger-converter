@@ -4,10 +4,11 @@
 // 色・スプライト・角度の扱いは dm-converter の viewer/src/layers.ts に合わせている。
 // 白図（黒線）を基本とし、ダークテーマでは線・文字を明色へ入れ替える。
 //
-// 分類コードごとの線種・線幅の描き分けは行っていない。道路台帳図の分類コードは
-// 自治体・測量ベンダーによって運用が異なり、全国共通の図式として確定していないため。
+// 分類コードごとの線種・線幅は、同梱のPDF図面（DM-_57-08.pdf、1:500）の実測で決めている。
+// 図式の書物ではなく図面そのものを基準にしたのは、道路台帳図の分類コードが自治体・測量
+// ベンダーによって運用が異なり、全国共通の図式として確定していないため（LINE_STYLES）。
 // 記号・方向のアイコンは公共測量標準図式のコードと共通なので、スプライトが持っている
-// コードはアイコンで描き、無いコードだけ代替図形（丸・矢印）で位置と向きを示す。
+// コードはアイコンで描き、無いコードだけ代替図形（丸）で位置を示す。
 // -----------------------------------------
 import type { LayerSpecification, SourceSpecification } from 'maplibre-gl'
 import { DM_SPRITE_ID } from './basemap'
@@ -56,14 +57,14 @@ export const GROUPS: LayerGroup[] = [
   {
     key: 'polygon',
     name: '面',
-    desc: 'DMの面要素（E1）。始終点が一致する線要素も面として出力される。分類コードごとの描き分けはしていない。',
+    desc: 'DMの面要素（E1）。始終点が一致する線要素も面として出力される。輪郭は線と同じ図面実測の線種・線幅で描く。PDF図面は面を塗らないので既定では塗りつぶさない。',
     on: true,
     opacity: 1,
   },
   {
     key: 'line',
     name: '線',
-    desc: 'DMの線要素（E2）。道路縁・区域界など。分類コードごとの線種・線幅の描き分けはしていない。等高線（71xx）は標高値を線に沿って表示する。',
+    desc: 'DMの線要素（E2）。道路縁・区域界など。分類コードごとの線幅と破線は、同梱のPDF図面（1:500）の実測に合わせている。等高線（71xx）は標高値を線に沿って表示する。',
     on: true,
     opacity: 1,
   },
@@ -77,7 +78,7 @@ export const GROUPS: LayerGroup[] = [
   {
     key: 'direction',
     name: '方向',
-    desc: 'DMの方向要素（E6）。分類コードのアイコンを角度属性に従って回転させる。アイコンが無いコードは矢印で向きを示す。標高点（7311・7312）はこの方向要素として記録されることがあり、標高値を数値で併記する。1要素に複数ペアが入るため、ペアごとに1地物として出力している（Seq で区別）。z17以上で表示。',
+    desc: 'DMの方向要素（E6）。分類コードのアイコンを角度属性に従って回転させる。アイコンが無いコードは丸で位置を示す（角度はポップアップで確認できる）。標高点（7311・7312）はこの方向要素として記録されることがあり、標高値を数値で併記する。1要素に複数ペアが入るため、ペアごとに1地物として出力している（Seq で区別）。z17以上で表示。',
     on: true,
     opacity: 1,
   },
@@ -130,18 +131,10 @@ const DETAIL_MINZOOM = 17
 const TEXT_FONT = ['NotoSansJP-Regular']
 
 /**
- * アイコンが無い方向要素に使う矢印。NotoSansJP-Regular に字形があるものから選ぶ必要がある。
- * `➤`（U+27A4）は同フォントに無く、要求しても描画されない（グリフ範囲は配信されるが
- * 字形が入っていないため無音で消える）。`▶`（U+25B6）は入っている。
- */
-const DIRECTION_ARROW = '▶'
-
-/**
  * 方向（E6）の回転角。
  *
  * DMの角度は「水平右（東）を0度とする反時計回り」。スプライトのアイコンは右（東）向きに
  * 描かれており、MapLibre の icon-rotate は時計回りのため、符号を反転するだけでよい。
- * 代替の矢印（▶）も右向きなので同じ式を使う。
  */
 const ICON_ROTATE = ['*', -1, ['coalesce', ['to-number', ['get', 'Angle']], 0]]
 
@@ -190,22 +183,26 @@ const ELEV_LABEL = ['to-string', ['get', 'Elev']]
 // bbox が小さいアイコンだけが小さく見える。
 //
 // dm-converter の viewer はこれを分類コードごとの倍率で引き上げている（設計基準
-// 10〜22px の中央値 18.56px を目標にする）。**こちらでは補正しない。** 理由は2つ。
+// 10〜22px の中央値 18.56px を目標にする）。**こちらではコードごとの補正はしない。**
+// ラスタのスプライトを引き伸ばすと輪郭がぼやけるうえ、図面より大きくなるため（Issue #13）。
 //
-// 1. ラスタのスプライトを引き伸ばすので輪郭がぼやける。3401 門は bbox 6.19px を
-//    3.0倍、6331 広葉樹林は 9.94px を1.87倍にしていたため、周囲のベクタ線に対して
-//    明確に甘く見えていた（補正対象の5コードだけがぼやける）
-// 2. 補正を掛けると図面より大きくなる。PDF図面（DM-_57-08.pdf）の実測では 3401 は
-//    0.60m だが、3.0倍の補正込みでは約2.9mに描いていた。補正を外すと z19 で
-//    0.76m 相当になり図面に近づく（Issue #13）
+// 代わりに全コード一律の倍率だけを掛ける。PDF図面（DM-_57-08.pdf）の記号49コードを
+// 実測して、スプライトのインク寸法（アルファ>8 の外接矩形）と比べたところ、
+// 倍率1.0では図面の 1.8倍（コード単位の中央値）／2.2倍（件数で重み付けした中央値）
+// あった。0.5 を掛けると図面とほぼ同じ大きさになる。
 //
-// 引き換えに、bbox の小さいアイコンは小さく描かれる。図面もそう描いているので
-// 道路台帳図（1:500）では妥当だが、**根本的な解決は dm-sprite 側でインクを
-// 設計基準まで大きく描き直すこと**（dm-sprite の Issue を参照）。そうなれば
-// このコメントごと不要になる。
+//   例（図面の大きさ ← 倍率1.0での大きさ）
+//     6331 広葉樹林 358件  0.91m ← 1.35m      4151      175件  1.06m ← 2.45m
+//     3401 門      306件  0.65m ← 0.98m      6214      101件  1.08m ← 2.94m
 //
-// 大きさを測り直すときは dm-sprite の tools/inspect_icons.py と、
-// PDF図面との突き合わせ（CLAUDE.md の確認項目4）を使う。
+// コードごとの比率は 0.7〜6.1倍とばらついたままで、これは dm-sprite のインクの
+// 大きさが揃っていないことに由来する（dm-sprite#15）。一律倍率ではそこは直らない。
+//
+// 測り直しは scripts/measure-pdf.py（PDF図面の実測）と dm-sprite の
+// tools/inspect_icons.py で行う。**dm-sprite が更新されたら測り直すこと。**
+
+/** 記号・方向のアイコンに一律に掛ける倍率。PDF図面の実測に合わせる。 */
+const ICON_SCALE = 0.5
 
 // ---- 地上サイズ固定 ----
 //
@@ -233,20 +230,234 @@ const PX_PER_M_Z19 = 8.157
  * @param meters  図面での地上サイズ（PDF図面の実測値を使う）
  * @param floorPx 小さすぎて読めなくなるのを防ぐ下限。地上サイズより優先する
  */
+const groundPx = (meters: number, floorPx = 8): number =>
+  Math.max(Math.round(meters * PX_PER_M_Z19 * 10) / 10, floorPx)
+
 const groundSize = (meters: number, floorPx = 8): unknown[] => {
-  const px19 = Math.max(Math.round(meters * PX_PER_M_Z19 * 10) / 10, floorPx)
+  const px19 = groundPx(meters, floorPx)
   return ['interpolate', ['exponential', 2], ['zoom'], 19, px19, 21, px19 * 4]
 }
 
 /**
  * アイコンの大きさ。`icon-size` は倍率なので px ではなく倍率で書く。
- *
- * z19 での見た目は変えず（倍率1.0）、ズームに対して地上サイズを保つようにする。
- * 図面との比率はコードごとに 1.5〜6.6倍とばらついたままで、これは
- * dm-sprite のインクの大きさが揃っていないことに由来する（Issue #13、dm-sprite#15）。
- * 地上サイズ固定にすると、この比率がどのズームでも一定になる。
+ * z19 で ICON_SCALE、以降はズーム1段ごとに倍にして地上サイズを保つ。
  */
-const ICON_SIZE: unknown[] = ['interpolate', ['exponential', 2], ['zoom'], 19, 1, 21, 4]
+const ICON_SIZE: unknown[] = [
+  'interpolate',
+  ['exponential', 2],
+  ['zoom'],
+  19,
+  ICON_SCALE,
+  21,
+  ICON_SCALE * 4,
+]
+
+// ---- 注記の字高 ----
+//
+// 分類コード別の字高はPDF図面の実測値（スパンのフォントサイズ ÷ 5.6687 pt/m）。
+// 既定は建物名・ビル名などの 1.50m。
+//
+// **ズーム補間の中に `match` を入れること。** 逆にして `match` の各分岐に
+// ズーム補間を置くと「Only one zoom-based "step" or "interpolate" subexpression
+// may be used in an expression」で text-size が丸ごと弾かれ、**注記レイヤーが
+// 無言で消える**（e458b54 で実際に消えていた）。線幅の SOLID_WIDTH も同じ形。
+
+const ANNOTATION_M: [string, number][] = [
+  ['8114', 2.25],   // 町丁目名
+  ['8164', 1.75],
+  ['8181', 0.99],
+  ['8173', 0.75],   // 等高線の標高注記
+  ['8144', 0.5],
+]
+
+const annotationSize = (mul: number): unknown[] => [
+  'match',
+  ['to-string', ['get', 'Code']],
+  ...ANNOTATION_M.flatMap(([code, m]) => [code, groundPx(m) * mul]),
+  groundPx(1.5) * mul,   // 8121 国道番号・8135 建物名・8136 ビル名など
+]
+
+const ANNOTATION_SIZE: unknown[] = [
+  'interpolate',
+  ['exponential', 2],
+  ['zoom'],
+  19,
+  annotationSize(1),
+  21,
+  annotationSize(4),
+]
+
+// ---- 線の描き分け ----
+//
+// 分類コードごとの線幅と破線は、同梱のPDF図面（DM-_57-08.pdf）の実測で決めた。
+// PDFの描画パスを平面直角座標に載せ（図枠のグリッドラベルから 5.6687 pt/m）、
+// 変換結果の線・面に投影して被覆区間を取り、線幅と実線／空白の長さを測っている
+// （scripts/measure-pdf.py）。図面は dash 属性を使わず短い実線の連なりで破線を
+// 描くので、パターンは投影した被覆区間から読むしかない。
+//
+// 図面の線幅は 0.30 / 0.42 / 0.54 / 0.84 pt の4種類で、図式どおりに分かれていた。
+// 堅ろう建物・堅ろう塀が太線、等高線は計曲線（0.54）＞主曲線（0.30）。
+// 既定は最も多い 0.42pt。
+
+/** PDF図面の1ptに相当する地上メートル（1:500、図枠から実測 5.6687 pt/m）。 */
+const M_PER_PT = 1 / 5.6687
+
+interface LineStyle {
+  /** 図面での線幅（pt）。 */
+  pt: number
+  /** 破線の [実線, 空白]（地上メートル）。省略すると実線。 */
+  dash?: [number, number]
+  codes: string[]
+  /** 実測の根拠を残すための覚え書き。 */
+  note: string
+}
+
+/** 既定の線幅（pt）。LINE_STYLES に無いコードはこれで描く。 */
+const LINE_DEFAULT_PT = 0.42
+
+/**
+ * 図面の実測から起こした線の描き方。実線は線幅だけを変えるので1レイヤーにまとめ、
+ * 破線はパターンごとにレイヤーを分ける（`line-dasharray` はコード別にできないため）。
+ */
+const LINE_STYLES: LineStyle[] = [
+  // --- 実線（線幅だけが既定と違うもの） ---
+  { pt: 0.84, codes: ['3002', '6141'], note: '堅ろう建物・堅ろう塀' },
+  { pt: 0.54, codes: ['7101'], note: '等高線（計曲線）' },
+  { pt: 0.3, codes: ['7102'], note: '等高線（主曲線）' },
+  // --- 破線 ---
+  { pt: 0.54, dash: [2.52, 0.58], codes: ['1106'], note: '大字・町・丁目界' },
+  { pt: 0.42, dash: [1.59, 0.53], codes: ['2233'], note: '側溝 L字溝' },
+  { pt: 0.42, dash: [1.06, 0.53], codes: ['2106', '2230'], note: '庭園路等' },
+  { pt: 0.42, dash: [0.71, 0.61], codes: ['2234', '5107'], note: '側溝・水路の地下部' },
+  { pt: 0.42, dash: [0.53, 0.26], codes: ['3003'], note: '普通無壁舎' },
+  { pt: 0.42, dash: [0.26, 0.26], codes: ['3402', '6301'], note: '屋門・植生界' },
+  { pt: 0.42, dash: [1.3, 1.15], codes: ['6201', '6302'], note: '区域界・耕地界' },
+  { pt: 0.3, dash: [0.44, 0.44], codes: ['4146', '4148', '4149'], note: '自治体固有コード' },
+  { pt: 0.3, dash: [0.26, 0.53], codes: ['2273'], note: '自治体固有コード' },
+]
+
+// 6136 生垣（169m）は図面に下地の線が無く、植生の記号を並べて表現している
+// （被覆区間で測ると実線率0.12）。再現できないので既定の実線のままにしている。
+
+/** 線幅を z19 の画面ピクセルにする。地上サイズ固定なので groundSize と同じ考え方。 */
+const widthPx19 = (pt: number): number =>
+  Math.round(pt * M_PER_PT * PX_PER_M_Z19 * 100) / 100
+
+/** `line-dasharray` は線幅の倍数で書く。地上の長さを線幅の地上長で割る。 */
+const dashArray = (s: LineStyle): number[] =>
+  s.dash!.map((m) => Math.round((m / (s.pt * M_PER_PT)) * 10) / 10)
+
+const DASH_STYLES = LINE_STYLES.filter((s) => s.dash)
+const DASH_CODES = DASH_STYLES.flatMap((s) => s.codes)
+
+/** 実線として描くコードの線幅（pt）。 */
+const SOLID_PT = new Map<string, number>(
+  LINE_STYLES.filter((s) => !s.dash).flatMap((s) => s.codes.map((c) => [c, s.pt] as const)),
+)
+
+/**
+ * 実線の線幅。ズーム補間の外側でしか `['zoom']` は使えないため、
+ * 補間の各停留点の中でコード別の `match` を組む。
+ */
+const solidWidth = (mul: number): unknown[] => [
+  'match',
+  ['to-string', ['get', 'Code']],
+  ...[...SOLID_PT].flatMap(([code, pt]) => [code, widthPx19(pt) * mul]),
+  widthPx19(LINE_DEFAULT_PT) * mul,
+]
+
+const SOLID_WIDTH: unknown[] = [
+  'interpolate',
+  ['exponential', 2],
+  ['zoom'],
+  19,
+  solidWidth(1),
+  21,
+  solidWidth(4),
+]
+
+/** 破線レイヤーの線幅（レイヤーごとに1種類なのでコード別の分岐は要らない）。 */
+const dashWidth = (pt: number): unknown[] => [
+  'interpolate',
+  ['exponential', 2],
+  ['zoom'],
+  19,
+  widthPx19(pt),
+  21,
+  widthPx19(pt) * 4,
+]
+
+/** 破線で描くコードを実線レイヤーから除くフィルタ。 */
+const NOT_DASHED: unknown[] = [
+  '!',
+  ['in', ['to-string', ['get', 'Code']], ['literal', DASH_CODES]],
+]
+
+/**
+ * 線・面の輪郭のレイヤー一式。実線1枚＋破線パターンごとに1枚を返す。
+ * 面の輪郭は id を `_outline` で終わらせる（main.ts が地物取得の対象から外す）。
+ */
+function strokeLayers(
+  group: GroupKey,
+  sourceLayer: string,
+  ink: Ink,
+  idFor: (suffix: string) => string,
+): LayerEntry[] {
+  const base = {
+    type: 'line' as const,
+    source: SOURCE_ID,
+    'source-layer': sourceLayer,
+    layout: { 'line-cap': 'round' as const, 'line-join': 'round' as const },
+  }
+  const solid: LayerEntry = {
+    group,
+    opacity: { 'line-opacity': 1 },
+    spec: {
+      ...base,
+      id: idFor(''),
+      filter: NOT_DASHED as never,
+      paint: { 'line-color': ink.line, 'line-width': SOLID_WIDTH as never, 'line-opacity': 1 },
+    },
+  }
+  const dashed = DASH_STYLES.map((s, i) => ({
+    group,
+    opacity: { 'line-opacity': 1 },
+    spec: {
+      ...base,
+      // 破線の端は丸めない。丸めると空白が詰まってパターンが読めなくなる
+      layout: { ...base.layout, 'line-cap': 'butt' as const },
+      id: idFor(`d${i}`),
+      filter: ['in', ['to-string', ['get', 'Code']], ['literal', s.codes]] as never,
+      paint: {
+        'line-color': ink.line,
+        'line-width': dashWidth(s.pt) as never,
+        'line-dasharray': dashArray(s) as never,
+        'line-opacity': 1,
+      },
+    },
+  })) as LayerEntry[]
+  return [solid, ...dashed]
+}
+
+/**
+ * スプライトにアイコンが無いコードを描く丸の半径。
+ *
+ * 記号・方向とも同じ丸で描く。**方向にも矢印を使わない。** 方向要素（E6）は
+ * 「向きを持つ記号」であって流向ではないため矢印は誤読を招くこと、そして図面の
+ * 実物がそう描いていないことによる。豊中サンプルで代替図形に回る全コードを
+ * PDF図面から切り出して確かめたところ、4181（8件、回転した四角）と
+ * 4214（7件、旗）を除くすべてが小さな丸か点だった。
+ *
+ *   記号 1,210件中 221件（11コード）… 2224（102件）・4191（82件）が多数
+ *   方向 1,473件中 241件（ 8コード）… 4143（109件）・4145（81件）が多数
+ *
+ * 件数は dm-sprite が166コードを収録する時点のもの。**スプライトが増えると変わる**
+ * ので、書き換えるときは `npm run check:codes` で数え直すこと。
+ *
+ * 大きさは図面の実測（0.25〜1.4m、中央値およそ1m）に合わせて直径1m相当にする。
+ * 向きは失われるが、角度はポップアップの Angle で確認できる。
+ */
+const FALLBACK_RADIUS = groundSize(0.5, 2)
 
 /** 分類コードからスプライトのアイコン名を組み立てる式。 */
 const ICON_IMAGE = ['concat', `${DM_SPRITE_ID}:dm-`, ['to-string', ['get', 'Code']]]
@@ -272,45 +483,24 @@ const lacksIcon = (codes: Set<string>): unknown[] => ['!', hasIcon(codes)]
 export function buildLayers(theme: Theme, spriteCodes: Set<string>): LayerEntry[] {
   const ink = inkFor(theme)
   return [
+    // 面の塗り。PDF図面は面を塗らない（白図に黒線だけ）ので既定では見せない。
+    // レイヤー自体は残す。クリックで面の属性を拾う当たり判定になっているため
+    // （queryRenderedFeatures は塗りの不透明度を見ない）。
     {
       group: 'polygon',
-      opacity: { 'fill-opacity': 0.25 },
+      opacity: {},
       spec: {
         id: 'road_polygon_fill',
         type: 'fill',
         source: SOURCE_ID,
         'source-layer': 'road_polygon',
-        paint: { 'fill-color': ink.fill, 'fill-opacity': 0.25 },
+        paint: { 'fill-color': ink.fill, 'fill-opacity': 0 },
       },
     },
-    {
-      group: 'polygon',
-      opacity: { 'line-opacity': 1 },
-      spec: {
-        id: 'road_polygon_outline',
-        type: 'line',
-        source: SOURCE_ID,
-        'source-layer': 'road_polygon',
-        paint: { 'line-color': ink.line, 'line-width': 0.8, 'line-opacity': 1 },
-      },
-    },
-    {
-      group: 'line',
-      opacity: { 'line-opacity': 1 },
-      spec: {
-        id: 'road_line',
-        type: 'line',
-        source: SOURCE_ID,
-        'source-layer': 'road_line',
-        layout: { 'line-cap': 'round', 'line-join': 'round' },
-        paint: {
-          'line-color': ink.line,
-          // 引いたときに潰れないよう、ズームに応じて細くする
-          'line-width': ['interpolate', ['linear'], ['zoom'], 15, 0.5, 18, 1.4],
-          'line-opacity': 1,
-        },
-      },
-    },
+    ...strokeLayers('polygon', 'road_polygon', ink, (s) =>
+      s ? `road_polygon_${s}_outline` : 'road_polygon_outline',
+    ),
+    ...strokeLayers('line', 'road_line', ink, (s) => (s ? `road_line_${s}` : 'road_line')),
     // 等高線（71xx）の標高値。線に沿って置く。
     {
       group: 'line',
@@ -351,9 +541,10 @@ export function buildLayers(theme: Theme, spriteCodes: Set<string>): LayerEntry[
         minzoom: DETAIL_MINZOOM,
         filter: lacksIcon(spriteCodes) as never,
         paint: {
-          // z19 での見た目（半径3.3px）を保ったまま地上サイズ固定にする
-          'circle-radius': groundSize(0.41, 2) as never,
-          'circle-color': ink.fill,
+          'circle-radius': FALLBACK_RADIUS as never,
+          // 地色で抜いて中空の丸にする。ink.fill（白）だとダークテーマで
+          // 縁と同じ明色になり、塗りつぶした白丸として悪目立ちする
+          'circle-color': ink.halo,
           'circle-opacity': 1,
           'circle-stroke-color': ink.line,
           'circle-stroke-width': 0.8,
@@ -409,32 +600,26 @@ export function buildLayers(theme: Theme, spriteCodes: Set<string>): LayerEntry[
         },
       },
     },
-    // 方向 — アイコンが無いコードは矢印で向きだけ示す
+    // 方向 — アイコンが無いコードは記号と同じ丸で位置だけ示す
     {
       group: 'direction',
-      opacity: { 'text-opacity': 1 },
+      opacity: { 'circle-opacity': 1, 'circle-stroke-opacity': 1 },
       spec: {
-        id: 'road_direction_arrow',
-        type: 'symbol',
+        id: 'road_direction_dot',
+        type: 'circle',
         source: SOURCE_ID,
         'source-layer': 'road_direction',
         minzoom: DETAIL_MINZOOM,
         filter: lacksIcon(spriteCodes) as never,
-        layout: {
-          'text-field': DIRECTION_ARROW,
-          'text-font': TEXT_FONT,
-          // 図面に代替矢印は無いので、z19 での見た目（14px）を基準に地上固定にする
-          'text-size': groundSize(1.72) as never,
-          'text-rotate': ICON_ROTATE as never,
-          'text-rotation-alignment': 'map',
-          'text-allow-overlap': true,
-          'text-ignore-placement': true,
-        },
         paint: {
-          'text-color': ink.text,
-          'text-halo-color': ink.halo,
-          'text-halo-width': 1,
-          'text-opacity': 1,
+          'circle-radius': FALLBACK_RADIUS as never,
+          // 地色で抜いて中空の丸にする。ink.fill（白）だとダークテーマで
+          // 縁と同じ明色になり、塗りつぶした白丸として悪目立ちする
+          'circle-color': ink.halo,
+          'circle-opacity': 1,
+          'circle-stroke-color': ink.line,
+          'circle-stroke-width': 0.8,
+          'circle-stroke-opacity': 1,
         },
       },
     },
@@ -499,17 +684,7 @@ export function buildLayers(theme: Theme, spriteCodes: Set<string>): LayerEntry[
         layout: {
           'text-field': ['coalesce', ['get', 'Text'], ''] as never,
           'text-font': TEXT_FONT,
-          // 字高はPDF図面の実測値（分類コード別）。既定は建物名などの 1.50m
-          'text-size': [
-            'match',
-            ['to-string', ['get', 'Code']],
-            '8114', groundSize(2.25),   // 町丁目名
-            '8164', groundSize(1.75),
-            '8181', groundSize(0.99),
-            '8173', groundSize(0.75),   // 等高線の標高注記
-            '8144', groundSize(0.5),
-            groundSize(1.5),            // 8135 建物名・8136 ビル名など
-          ] as never,
+          'text-size': ANNOTATION_SIZE as never,
           // 注記（E7）の代表点は文字列の書き出し位置。既定の center だと文字列長の
           // 半分だけ西へずれる（豊中サンプルの横書き39件で、PDF図面の文字列左端との
           // 東西差が中央値0.32m、中央との差が7.28m）。左端合わせにして図面に揃える。
