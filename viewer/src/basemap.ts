@@ -140,9 +140,13 @@ const PROVIDERS: string[] = String(import.meta.env.VITE_DM_PROVIDERS ?? DEFAULT_
 /**
  * スプライトのキーを「提供元」と「分類コード」に分ける。
  *
- *   dm-4132           → { provider: null,       code: '4132' }   標準図式
- *   dm-ext1-2245      → { provider: 'ext1',     code: '2245' }   拡張DM（提供元未特定）
- *   dm-toyonaka-4191  → { provider: 'toyonaka', code: '4191' }   拡張DM（豊中市）
+ *   dm-4132           → { provider: null,       code: '4132' }      標準図式
+ *   dm-ext1-2245      → { provider: 'ext1',     code: '2245' }      拡張DM（提供元未特定）
+ *   dm-ext1-9101100   → { provider: 'ext1',     code: '9101100' }   同（コードが7桁のもの）
+ *   dm-toyonaka-4191  → { provider: 'toyonaka', code: '4191' }      拡張DM（豊中市。作成中）
+ *
+ * いま配信されている区画は `ext1` だけ。豊中市の区画は dm-sprite で作成中で、
+ * それまで `4191` は ICON_ALIASES で `dm-4161` を指して解決している。
  *
  * 分類コードは数字だけなので、末尾の数字列をコード、その手前を提供元として切る
  * （dm-sprite#23 の命名。`dm-ext1-9101100` のように7桁のものもある）。
@@ -171,8 +175,12 @@ const ICON_ALIASES: Record<string, Record<string, string>> = {
     // 図面では丸囲みの「水」（㊌）。標準の 4161 マンホール（水道）と同一意匠で
     // 描かれており、図面が両者を記号で描き分けていない（大きさは 4191 が 4161 の
     // 73%だが、形は同じ）。dm-sprite 側は「図面に無い区別は発明しない」方針で
-    // 4191 のアイコンを作らないと決めたため、こちらで 4161 を指す。
+    // 標準の枠には 4191 を作らないと決めたため、こちらで 4161 を指す。
     // 出典: 豊中市サンプル 図郭57-08 の DM-_57-08.pdf（dm-sprite#22 で実測）
+    //
+    // **豊中市の区画（dm-toyonaka-4191）が配信されるまでの措置。**
+    // 区画のアイコンは代替表より先に採る（loadSpriteIcons の順）ので、配信されれば
+    // 無修正で切り替わる。切り替わったらこの行を外すこと（残っても害はないが死ぬ）。
     '4191': 'dm-4161',
   },
 }

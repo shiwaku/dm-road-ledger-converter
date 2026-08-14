@@ -12,10 +12,15 @@
 //
 //   node scripts/check-codes.mjs
 //
-// アイコンがあるのに名称が無いコードが1つでもあれば終了コード1。
+// **標準図式のコードでアイコンがあるのに名称が無い**場合だけ終了コード1。
+// 拡張コード（自治体固有）は図式に名称が無いのが当たり前で、名称表に足しようがない。
+// アイコンが増えるたびに落ちて、直しようのない指示を出すことになるため分けて扱う
+// （dm-sprite に豊中市の区画が入った時点で実際に8コードが該当した）。
+// 標準か拡張かは ../../scripts/standard-codes.mjs で判定する。
 import { readFileSync, existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { loadStandardCodes } from '../../scripts/standard-codes.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const ROOT = join(HERE, '..', '..')
@@ -76,16 +81,27 @@ if (counts.size) console.log(`変換結果 output/       : ${counts.size} コー
 
 // アイコンがあるのに名称が無い＝ポップアップに「記載なし」と出てしまう
 const iconNoName = [...sprite].filter((c) => !names.has(c)).sort()
-// 図式は4桁。それ以外は dm-sprite 独自の拡張コードなので分けて扱う
-const fourDigit = iconNoName.filter((c) => c.length === 4)
-const extended = iconNoName.filter((c) => c.length !== 4)
+// **標準図式にあるコードだけが名称表の対象。** 拡張コード（自治体固有）は図式に
+// 名称が無いので足しようがない。「4桁かどうか」で代用すると `4145` のような
+// 4桁の拡張コードを名称表の穴として数えてしまう
+const { codes: standardCodes, source: standardSource } = await loadStandardCodes(
+  process.env.DM_STANDARD_CODES,
+)
+if (!standardCodes) {
+  console.error('標準コード表を取得できないため、標準と拡張を分けられません。')
+  process.exit(2)
+}
+console.log(`標準コード表         : ${standardCodes.size} コード`)
+const missingName = iconNoName.filter((c) => standardCodes.has(c))
+const extended = iconNoName.filter((c) => !standardCodes.has(c))
 
-console.log(`\n■ アイコンがあるのに名称が無い: ${fourDigit.length} コード`)
-for (const c of fourDigit) console.log(`   ${withCount(c)}`)
+console.log(`\n■ アイコンがあるのに名称が無い: ${missingName.length} コード`)
+for (const c of missingName) console.log(`   ${withCount(c)}`)
 if (extended.length) {
   console.log(
-    `\n□ 図式外の拡張コード（4桁でないもの。名称表の対象外）: ${extended.map(withCount).join(', ')}`,
+    `\n□ 拡張コード（標準図式に無い。名称表の対象外）: ${extended.map(withCount).join(', ')}`,
   )
+  console.log(`   判定の根拠 ${standardSource}`)
 }
 
 // 提供元の区画に入っているコード。ビューワは VITE_DM_PROVIDERS で指定した提供元しか引かない
@@ -118,11 +134,11 @@ if (counts.size) {
   console.log(`  アイコンが無いコード: ${noIcon.length}（線・面・注記を含むので参考値）`)
 }
 
-if (fourDigit.length) {
+if (missingName.length) {
   console.log(
     '\nアイコンがあるのに名称が無いコードは、dm-converter の viewer/src/dmCodes.ts に' +
       '名称を足してから、こちらへ複製すること（図式は共通なので両方を揃える）。',
   )
   process.exit(1)
 }
-console.log('\n整合しています。')
+console.log('\n整合しています（拡張コードに名称が無いのは正常です）。')
