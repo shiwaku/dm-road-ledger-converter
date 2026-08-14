@@ -2,7 +2,7 @@ import maplibregl from 'maplibre-gl'
 import { Protocol } from 'pmtiles'
 import 'maplibre-gl/dist/maplibre-gl.css'
 
-import { getBasemapStyle, loadSpriteCodes, type Basemap } from './basemap'
+import { getBasemapStyle, loadSpriteIcons, spriteProviders, type Basemap } from './basemap'
 import {
   GROUPS,
   SOURCES,
@@ -32,10 +32,11 @@ maplibregl.addProtocol('pmtiles', protocol.tile)
 
 // 記号・方向は、スプライトにアイコンがあるコードだけをアイコンで描く。
 // どのコードが描けるかは起動時にスプライトの索引から読む（読めなければ全コードを代替図形で描く）。
-const spriteCodes = await loadSpriteCodes()
+// 拡張DMコードは提供元の区画つきキーなので、VITE_DM_PROVIDERS に挙げた提供元だけを引く。
+const spriteIcons = await loadSpriteIcons()
 
 // レイヤーの色はテーマで入れ替わるため、テーマを変えたら組み立て直す。
-let LAYERS: LayerEntry[] = buildLayers(theme, spriteCodes)
+let LAYERS: LayerEntry[] = buildLayers(theme, spriteIcons)
 const entriesOf = (key: GroupKey): LayerEntry[] => LAYERS.filter((l) => l.group === key)
 
 const map = new maplibregl.Map({
@@ -93,7 +94,7 @@ function diag(msg: string): void {
 /**
  * スプライトに無いアイコンを要求されたら、透明画像を割り当てて何も描かない状態にする。
  *
- * 記号・方向はスプライトの索引（loadSpriteCodes）にあるコードだけをアイコンで描くため、
+ * 記号・方向はスプライトの索引（loadSpriteIcons）にあるコードだけをアイコンで描くため、
  * 通常ここは通らない。索引と実体がずれている場合の保険で、毎タイル読み込み失敗が
  * 報告されるのを止める。欠けているアイコンは ?debug の HUD に出す。
  */
@@ -128,7 +129,7 @@ function renderHud(): void {
   hudEl.innerHTML =
     `<b>build ${__BUILD_TIME__}</b><br>` +
     `zoom ${map.getZoom().toFixed(1)} · base ${base} · mobile ${isMobile} · ctxLost ${ctxLostCount}<br>` +
-    `sprite codes ${spriteCodes.size}<br>` +
+    `sprite codes ${spriteIcons.size} · providers ${spriteProviders().join(',') || '(標準のみ)'}<br>` +
     `<u>rendered features / group</u><br>${rows || '(none)'}<br>` +
     `<u>missing icons</u><br>${[...missingImages].join(', ') || '(none)'}<br>` +
     `<u>log</u><br>${diagLog.join('<br>')}`
@@ -237,7 +238,7 @@ const renderThemeBtn = (): void => {
 // 競合するため、新スタイルが落ち着く idle を待ってからデータ層を貼り直す。
 async function reloadStyle(): Promise<void> {
   // テーマで道路台帳図側の色も入れ替わるため、レイヤー定義を組み立て直す
-  LAYERS = buildLayers(theme, spriteCodes)
+  LAYERS = buildLayers(theme, spriteIcons)
   map.setStyle(await getBasemapStyle(base, theme), { diff: false })
   map.once('idle', () => {
     if (tilesOk) addDataLayers()

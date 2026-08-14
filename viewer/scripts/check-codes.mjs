@@ -50,14 +50,25 @@ if (!res.ok) {
   console.error(`スプライトを取得できません: ${SPRITE_JSON} (HTTP ${res.status})`)
   process.exit(2)
 }
-const sprite = new Set(
-  Object.keys(await res.json())
-    .filter((k) => k.startsWith('dm-'))
-    .map((k) => k.slice(3)),
-)
+// スプライトのキーは `dm-<コード>`（標準図式）と `dm-<提供元>-<コード>`（拡張DM）の
+// 2種類（dm-sprite#23）。分類コードは数字だけなので、末尾の数字列をコードとして切る。
+// 区画を無視して `dm-` を落とすだけだと `ext1-2245` のような値になり、
+// 「4桁でない拡張コード」として素通りしてしまう（2245 は4桁の標準枠のコード）。
+const spriteEntries = Object.keys(await res.json())
+  .filter((k) => k.startsWith('dm-'))
+  .map((k) => /^(?:(.+)-)?(\d+)$/.exec(k.slice(3)))
+  .filter(Boolean)
+  .map((m) => ({ provider: m[1] ?? null, code: m[2] }))
+const sprite = new Set(spriteEntries.map((e) => e.code))
+const providerOf = new Map(spriteEntries.map((e) => [e.code, e.provider]))
 const counts = readCounts()
 const n = (code) => counts.get(code) ?? 0
-const withCount = (code) => (counts.size ? `${code}（豊中 ${n(code)}件）` : code)
+const scope = (code) => {
+  const p = providerOf.get(code)
+  return p ? `［${p}］` : ''
+}
+const withCount = (code) =>
+  `${code}${scope(code)}${counts.size ? `（豊中 ${n(code)}件）` : ''}`
 
 console.log(`名称表 src/dmCodes.ts : ${names.size} コード`)
 console.log(`スプライト dm-sprite  : ${sprite.size} コード`)
@@ -72,7 +83,27 @@ const extended = iconNoName.filter((c) => c.length !== 4)
 console.log(`\n■ アイコンがあるのに名称が無い: ${fourDigit.length} コード`)
 for (const c of fourDigit) console.log(`   ${withCount(c)}`)
 if (extended.length) {
-  console.log(`\n□ 図式外の拡張コード（4桁でないもの。名称表の対象外）: ${extended.join(', ')}`)
+  console.log(
+    `\n□ 図式外の拡張コード（4桁でないもの。名称表の対象外）: ${extended.map(withCount).join(', ')}`,
+  )
+}
+
+// 提供元の区画に入っているコード。ビューワは VITE_DM_PROVIDERS で指定した提供元しか引かない
+const scoped = spriteEntries.filter((e) => e.provider)
+if (scoped.length) {
+  const byProvider = new Map()
+  for (const e of scoped) {
+    byProvider.set(e.provider, [...(byProvider.get(e.provider) ?? []), e.code])
+  }
+  console.log('\n□ 提供元の区画に入っているアイコン（既定では引かない）')
+  for (const [p, cs] of byProvider) {
+    console.log(`   ${p}: ${cs.map((c) => (counts.size ? `${c}（豊中 ${n(c)}件）` : c)).join(', ')}`)
+  }
+  console.log(
+    '   ビューワで使うには VITE_DM_PROVIDERS=' +
+      [...byProvider.keys()].join(',') +
+      ' を指定する（README「拡張DMコードの提供元を指定する」）。',
+  )
 }
 
 if (counts.size) {
