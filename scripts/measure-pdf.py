@@ -49,6 +49,10 @@ OUT = ROOT / 'output'
 SPRITE = 'https://shiwaku.github.io/dm-sprite/'
 EPSG = 'EPSG:6674'
 
+# 拡張DMのアイコンを引く提供元。viewer/src/basemap.ts の DEFAULT_PROVIDERS と揃える。
+# 同梱の豊中市サンプルを測るためのものなので、他所のデータを測るときは変える。
+PROVIDERS = ('ext1', 'toyonaka')
+
 # z19 で地上1メートルに相当する画面ピクセル数（layers.ts の PX_PER_M_Z19 と同じ）
 PX_PER_M_Z19 = 8.157
 
@@ -231,19 +235,36 @@ def measure_lines(page, aff) -> None:
 # ---- 2. 記号の大きさ ----
 
 def sprite_ink() -> dict[str, int]:
-    """dm-sprite の各アイコンの、実際に描かれている範囲の最大辺（px）。"""
+    """dm-sprite の各アイコンの、実際に描かれている範囲の最大辺（px）。
+
+    キーは `dm-<コード>`（標準図式）と `dm-<提供元>-<コード>`（拡張DM）の2種類ある
+    （dm-sprite#23）。`dm-` を落とすだけだと拡張DMが `toyonaka-4145` のような
+    キーになり、分類コードで引けず**黙って測定から漏れる**（豊中市の区画が
+    入ったとき、4145 の100件をはじめ7コードが表から消えていた）。
+    ビューワの basemap.ts と同じく、末尾の数字列をコードとして切り、
+    標準 → PROVIDERS の順に採る。
+    """
     idx = json.loads(urllib.request.urlopen(SPRITE + 'sprite.json').read())
     sheet = np.array(Image.open(
         io.BytesIO(urllib.request.urlopen(SPRITE + 'sprite.png').read())).convert('RGBA'))
-    ink = {}
+    px, seen = {}, {}
     for k, v in idx.items():
         if not k.startswith('dm-'):
             continue
+        m = re.fullmatch(r'(?:(.+)-)?(\d+)', k[3:])
+        if not m:
+            continue
         a = sheet[v['y']:v['y'] + v['height'], v['x']:v['x'] + v['width'], 3] > 8
         ys, xs = np.nonzero(a)
-        if len(xs):
-            ink[k[3:]] = int(max(xs.max() - xs.min(), ys.max() - ys.min()) + 1)
-    return ink
+        if not len(xs):
+            continue
+        seen.setdefault(m[2], {})[m[1]] = int(max(xs.max() - xs.min(), ys.max() - ys.min()) + 1)
+    for code, by_provider in seen.items():
+        for p in [None, *PROVIDERS]:
+            if p in by_provider:
+                px[code] = by_provider[p]
+                break
+    return px
 
 
 def measure_symbols(page, aff) -> None:
