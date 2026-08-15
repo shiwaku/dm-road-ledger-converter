@@ -31,6 +31,7 @@ dm-road-ledger-converter/
 │   ├── build.sh                  GeoJSON + GeoParquet + PMTiles の一括生成
 │   ├── check-extended-codes.mjs  拡張コードの点検（build.sh が変換直後に実行）
 │   ├── standard-codes.mjs        標準コード表の読み口（標準か拡張かの判定）
+│   ├── reconcile-pdf.py          PDF図面と変換結果の全数照合（地物の有無）
 │   ├── geojson2parquet.py        GeoParquet変換（ogr2ogr が使えない環境向け）
 │   └── measure-pdf.py            PDF図面の実測（線幅・破線・記号の大きさ・字高）
 ├── docs/
@@ -145,7 +146,13 @@ EPSG=6674 scripts/build.sh /path/to/dm_dir
    異常ではない。** 終了コード1になるのは「拡張DMのアイコンがあるのに提供元を指定していない」
    場合だけで、これは静かに丸へ落ちるので見た目からは気づけない
 4. **シェープファイル版との突き合わせ** — `data/.../SHP_5708/shp` と分類コード単位で比較する
-5. **PDF図面との突き合わせ** — `python3 scripts/measure-pdf.py` が線幅・破線・記号の
+5. **PDF図面との全数照合** — `python3 scripts/reconcile-pdf.py` が地物の有無を両方向で数える。
+   豊中サンプルでは描画パス16,737本中16,659本を説明でき、残り78本は
+   ヘアライン45本（0.06pt以下＝紙に出ない）・図郭の枠線1本・**DMに無い太線32本
+   （1.02pt・227.7m。国道176号沿いの道路区域線に見えるもの）**。
+   **延長の比率で語らないこと。** 図郭を貫くヘアラインだけで延長の2割近くを占め、
+   実際の食い違いが埋もれる。線幅で分けて数える
+6. **PDF図面との突き合わせ（描き方）** — `python3 scripts/measure-pdf.py` が線幅・破線・記号の
    大きさ・字高を実測して出す。`data/.../PDF_57-08/DM-_57-08.pdf` はA0のベクタPDFで、
    テキストもパスも座標つきで取り出せる。図枠のグリッドラベル（`-48,800`〜`-48,400`／
    `-135,000`〜`-135,300`）から PDF pt → 平面直角座標のアフィン変換が作れる
