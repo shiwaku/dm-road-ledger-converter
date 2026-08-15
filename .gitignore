@@ -4,6 +4,9 @@ data/
 dist/
 public/*.pmtiles
 
+# reconcile-pdf.py が measure-pdf.py を読み込むたびにできる
+__pycache__/
+
 # 申請書類（住所・氏名・連絡先を含む。個人情報はリポジトリに置かない）
 docs/fill_youshiki1.py
 docs/豊中市DM_様式1記入内容.md
