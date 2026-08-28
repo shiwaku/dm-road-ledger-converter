@@ -3,6 +3,7 @@
 // 逐次実行（index.js）とワーカー（worker.js）の両方から使う。
 // -----------------------------------------
 const DM = require('./dm');
+const { DATATYPE_MAP } = DM;
 
 /** 出力種別。Writer の並び順とファイル名サフィックスの対応。 */
 const KINDS = ['線', '面', '記号', '方向', '注記'];
@@ -78,11 +79,66 @@ function setCommon(w, dat) {
 }
 
 /**
+ * 変換対象外として読み飛ばしたレコードの集計。
+ *
+ * @typedef  {object} Skipped
+ * @property {Object<string, number>} counts  レコード種別ごとの件数（`{ E4: 8 }`）
+ * @property {string[]}               files   該当レコードを含んでいた .dm ファイル
+ */
+
+/** 空の集計。 */
+function emptySkipped() {
+  return { counts: {}, files: [] };
+}
+
+/** 集計を破壊的に足し合わせる。ワーカーごとの集計をまとめるのにも使う。 */
+function mergeSkipped(into, add) {
+  for (const [rectype, n] of Object.entries(add.counts)) {
+    into.counts[rectype] = (into.counts[rectype] || 0) + n;
+  }
+  for (const f of add.files) {
+    if (!into.files.includes(f)) into.files.push(f);
+  }
+  return into;
+}
+
+/**
+ * 読み飛ばしたレコードがあれば警告として出す。無ければ何も出さない。
+ *
+ * 終了コードは変えない。円弧を使うDMも属性レコードを持つDMも正常なデータであり、
+ * 「変換できない」のではなく「本ツールが出力しない」だけだから。
+ * 利用者が図面との食い違いを追えるように、件数とファイルを見せるところまでを担う。
+ */
+function reportSkipped(skipped, log = console.warn) {
+  const entries = Object.entries(skipped.counts).filter(([, n]) => n > 0);
+  if (entries.length === 0) return;
+
+  const total = entries.reduce((sum, [, n]) => sum + n, 0);
+  log('');
+  log(`警告: 変換対象外のレコードを ${total} 件読み飛ばしました（出力には現れません）`);
+
+  // 件数の多い順。同数のときはレコード種別順にして、実行ごとに並びが変わらないようにする
+  entries.sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  for (const [rectype, n] of entries) {
+    log(`  ${rectype} ${DATATYPE_MAP[rectype] || '不明'}: ${n}件`);
+  }
+
+  // 図面との食い違いを追えるようにファイル名を出す。多いときは頭だけにして流れ去らせない
+  const SHOW = 10;
+  log(`  該当ファイル: ${skipped.files.length}件`);
+  for (const f of skipped.files.slice(0, SHOW)) log(`    ${f}`);
+  if (skipped.files.length > SHOW) log(`    ほか ${skipped.files.length - SHOW}件`);
+}
+
+/**
  * @param {string[]} files    .dm ファイルのパス
  * @param {object}   writers  { 線, 面, 記号, 方向, 注記 } の GeoJSONWriter
  * @param {function} onFile   1ファイル処理するたびに呼ばれる（進捗表示用）
+ * @returns {Skipped} 読み飛ばしたレコードの集計
  */
 function convertFiles(files, writers, onFile) {
+  const skipped = emptySkipped();
+
   for (const dmfile of files) {
     if (onFile) onFile(dmfile);
     const dats = new DM(dmfile);
@@ -139,9 +195,17 @@ function convertFiles(files, writers, onFile) {
         w.setPropertie('DataKind',   dat.DATA_KIND   || '');
         w.write();
       }
-      // E3（円）は変換対象外
+      // 円（E3）・円弧（E4）・属性（E8）は変換対象外。件数だけ数えて呼び出し側に返す
+    }
+
+    // skipped は要素の走査後に確定する（getter が解析を済ませる）
+    const counts = dats.skipped;
+    if (Object.keys(counts).length > 0) {
+      mergeSkipped(skipped, { counts, files: [dmfile] });
     }
   }
+
+  return skipped;
 }
 
-module.exports = { KINDS, convertFiles };
+module.exports = { KINDS, DATATYPE_MAP, convertFiles, emptySkipped, mergeSkipped, reportSkipped };

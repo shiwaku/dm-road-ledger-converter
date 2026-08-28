@@ -12,7 +12,7 @@ const path = require('path');
 const fs = require('fs');
 const DMFiles = require('./dmfiles');
 const GeoJSONWriter = require('./geojsonWriter');
-const { KINDS, convertFiles } = require('./convert');
+const { KINDS, convertFiles, reportSkipped } = require('./convert');
 const { convertParallel, defaultJobs } = require('./parallel');
 
 // output/ はリポジトリルート直下（src/ の1つ上）
@@ -67,7 +67,7 @@ function runSequential(files, epsg, outDir) {
   }
   let n = 0;
   try {
-    convertFiles(files, writers, (f) => console.log(`[${++n}/${files.length}] ${f}`));
+    return convertFiles(files, writers, (f) => console.log(`[${++n}/${files.length}] ${f}`));
   } finally {
     for (const kind of KINDS) writers[kind].close();
   }
@@ -83,11 +83,12 @@ async function main() {
 
   // ファイルが1つも無い場合も、空の GeoJSON を出して正常終了する。
   const workers = Math.min(jobs, files.length);
+  let skipped;
   if (workers > 1) {
     console.log(`並列変換: ${workers} ワーカー / ${files.length} ファイル`);
-    await convertParallel(files, epsg, outDir, workers);
+    skipped = await convertParallel(files, epsg, outDir, workers);
   } else {
-    runSequential(files, epsg, outDir);
+    skipped = runSequential(files, epsg, outDir);
   }
 
   console.log(`\n処理ファイル数: ${files.length}`);
@@ -98,6 +99,10 @@ async function main() {
   console.log(`DM dir: ${dmDir}`);
   console.log(`EPSG: ${epsg}`);
   console.log('縮尺はScaleプロパティに各フィーチャの値を格納');
+
+  // 円（E3）・円弧（E4）・属性（E8）は出力されない。黙って消えると
+  // 「変換したのに図面と違う」の原因に気づけないため、最後に件数を出す
+  reportSkipped(skipped);
 }
 
 main().catch((err) => {

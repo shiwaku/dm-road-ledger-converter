@@ -54,6 +54,10 @@ const map = new maplibregl.Map({
   // 逼迫すると WebGL コンテキストが失われ地図がまるごと消えるため、その圧を下げる。
   maxTileCacheSize: isMobile ? 24 : undefined,
   pixelRatio: isMobile ? Math.min(window.devicePixelRatio || 1, 2) : undefined,
+  // WebGL の描画結果を読み戻せるようにする。既定の false だと
+  // ヘッドレスで撮った絵が真っ白になり、ラスタ差分が取れない。
+  // 常時有効にすると描画のたびにバッファを保持するぶん遅くなるので ?debug のときだけ。
+  canvasContextAttributes: DEBUG ? { preserveDrawingBuffer: true } : undefined,
 })
 
 map.addControl(new maplibregl.NavigationControl({ showCompass: true, visualizePitch: true }), 'top-right')
@@ -69,6 +73,13 @@ map.addControl(
 map.addControl(new maplibregl.FullscreenControl(), 'top-right')
 map.addControl(new maplibregl.ScaleControl({ maxWidth: 200, unit: 'metric' }), 'bottom-left')
 map.addControl(new maplibregl.AttributionControl({ compact: true }))
+
+// 自動描画（scripts/render-sheet.mjs）から地図を操作するための口。?debug のときだけ生やす。
+// ラスタ差分は「実際に描かれた絵」を測るものなので、範囲とズームを厳密に合わせ、
+// 描画が落ち着いたか（idle）を外から待てないと意味がない。通常の閲覧では生えない。
+if (DEBUG) {
+  ;(window as unknown as { __dmMap?: maplibregl.Map }).__dmMap = map
+}
 
 // ---- 状態表示 ----
 const statusEl = document.getElementById('status') as HTMLElement

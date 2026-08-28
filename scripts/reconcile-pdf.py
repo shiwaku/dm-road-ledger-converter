@@ -15,6 +15,9 @@
      記号・方向はその位置の近くにインクがあるかを見る
   4. PDFのテキストと注記（E7）を突き合わせる。図面にしか無い文字は
      標高値かどうかで分ける（標高値は**DMに値が入っていない**ので出ないのが正しい）
+  5. ビューワが `Elev` から描く「派生ラベル」を図面の数値と突き合わせる。
+     注記ではないので 4 では拾えない。**変換結果が正しくてもビューワが図面より
+     多く描いていれば、ここでしか気づけない**（等高線の標高がこれに当たる）
 
 前提として、図面のほうが情報が多い。図面にしか無いものが出ること自体は
 不具合ではない。**数と内訳が説明できるか**を見るためのスクリプト。
@@ -62,6 +65,19 @@ COVER_MIN = 0.2
 # ところまで字が続くので広く取り、代わりに「注記に含まれる字か」で絞る。
 TOL_TEXT = 15.0
 
+# 図面は等高線の標高を全角整数（２３〜２７）、標高点を半角（23.86）で描き分けている。
+# 全角か半角かが、そのまま「どちらのラベルか」の判別になる。
+ZEN_INT = re.compile('^[０-９]+$')
+HAN_NUM = re.compile('^-?[0-9]{1,3}([.][0-9]+)?$')
+# 等高線とラベルを結びつける距離(m)。ラベルは線を切って内側に置かれる。
+TOL_CONTOUR_LABEL = 5.0
+# 標高点とラベルを結びつける距離(m)。記号の脇に添えられる。
+TOL_ELEV_LABEL = 3.0
+
+# 等高線（71xx）と標高点。convert.js の ELEV_CODES と同じ範囲を見ている。
+CONTOUR = re.compile('^71')
+ELEV_POINT_CODES = {'7311', '7312'}
+
 # 図面には目に見えない線が混ざる。1:500 では 0.1pt ＝ 0.018mm で紙に出ない。
 HAIRLINE_PT = 0.1
 # 図郭の枠線。3.0pt で図郭の縁をなぞる1本だけ。
@@ -99,6 +115,106 @@ def load_converted():
         texts.append((str(p.get('Code', '')), str(p.get('Text', '')),
                       Point(TR.transform(*f['geometry']['coordinates'][:2]))))
     return lines, points, texts
+
+
+def load_elev_labels():
+    """ビューワが `Elev` から描く文字を集める。
+
+    これは注記（E7）ではない。DMの標高値フィールドを convert.js が `Elev` として出し、
+    ビューワが `text-field` で描いている派生ラベルなので、注記の照合には現れない。
+    等高線は線に沿って、標高点は記号・方向の位置に描かれる。
+    """
+    contour, elevpt = [], []
+    for kind in ('線', '面'):
+        for f in MP.load(kind):
+            code = str(f['properties'].get('Code', ''))
+            elev = f['properties'].get('Elev')
+            if elev in (None, '') or not CONTOUR.match(code):
+                continue
+            for ring in MP.rings(f['geometry']):
+                if len(ring) >= 2:
+                    contour.append((code, str(elev),
+                                    LineString([TR.transform(x, y) for x, y in ring])))
+    for kind in ('記号', '方向'):
+        for f in MP.load(kind):
+            code = str(f['properties'].get('Code', ''))
+            if code not in ELEV_POINT_CODES:
+                continue
+            # Elev が空のものも集める。図面はそこに標高を描いているのに
+            # DMに値が無い（7311がこれ）という差を数えたいため
+            elev = f['properties'].get('Elev')
+            elevpt.append((code, '' if elev in (None, '') else str(elev),
+                           Point(TR.transform(*f['geometry']['coordinates'][:2]))))
+    return contour, elevpt
+
+
+def report_elev_labels(spans) -> None:
+    """派生ラベルを図面の数値と突き合わせる。
+
+    ここだけは「変換結果 → 図面」ではなく **「ラベル候補 → 図面」** を見ている。
+    変換結果に過不足が無くても、候補が図面より多ければ描きすぎの元になる。
+    そのズレは有無の照合にも実測にも出ないので、ここでしか気づけない。
+
+    **これは「画面に何個出るか」ではない。** 等高線のラベルは
+    `symbol-placement: line` ＋ `text-allow-overlap: false` ＋ `symbol-spacing`（既定250px）
+    で衝突判定に任せてあり、実際に描かれる数はズームで変わる。ここで数えているのは
+    間引かれる前の候補数で、**画面上の数はラスタ差分でしか確かめられない**。
+    標高点のほうは `text-allow-overlap: true` なので候補がそのまま全件描かれる。
+    """
+    contour, elevpt = load_elev_labels()
+    contour = [c for c in contour if SHEET.intersects(c[2])]
+    elevpt = [e for e in elevpt if SHEET.covers(e[2])]
+
+    print()
+    print('■ ビューワが描く派生ラベル → 図面の数値')
+
+    # 等高線。図面は全角整数で、しかも一部の線にしか付けない
+    if contour:
+        tree = STRtree([g for _, _, g in contour])
+        zen = [p for t, p, _ in spans if ZEN_INT.match(t)]
+        # ラベル1つは等高線1本に属する。5m以内の全本を数えると重複するので最寄りだけ取る
+        near = []
+        for p in zen:
+            cand = [i for i in tree.query(p.buffer(TOL_CONTOUR_LABEL))
+                    if contour[i][2].distance(p) < TOL_CONTOUR_LABEL]
+            near.append(min(cand, key=lambda i: contour[i][2].distance(p)) if cand else None)
+        on = [i for i in near if i is not None]
+        labelled = set(on)
+        bycode = collections.Counter(c for c, _, _ in contour)
+        vals = sorted({v for _, v, _ in contour}, key=float)
+        codes = ' / '.join('%s %d本' % (c, n) for c, n in sorted(bycode.items()))
+        print('   等高線の標高（71xx の Elev）')
+        print('     ラベル候補     %4d件  (%s・標高%d値 %s)'
+              % (len(contour), codes, len(vals), ','.join(vals)))
+        print('     図面のラベル   %4dか所  （全角整数。%d本の等高線に付く）'
+              % (len(on), len(labelled)))
+        print('     → 候補が図面の %.1f倍' % (len(contour) / max(len(on), 1)))
+        print('        ビューワは衝突判定で間引くので画面上の数はこれより少ない。'
+              '実数はラスタ差分でしか出ない')
+
+    # 標高点。図面は半角で、記号の脇に添える
+    if elevpt:
+        tree = STRtree([g for _, _, g in elevpt])
+        han = [p for t, p, _ in spans if HAN_NUM.match(t)]
+        on = [p for p in han
+              if any(elevpt[i][2].distance(p) < TOL_ELEV_LABEL
+                     for i in tree.query(p.buffer(TOL_ELEV_LABEL)))]
+        drawn = [e for e in elevpt if e[1]]
+        blank = [e for e in elevpt if not e[1]]
+        bycode = collections.Counter(c for c, v, _ in elevpt if v)
+        codes = ' / '.join('%s %d件' % (c, n) for c, n in sorted(bycode.items()))
+        print('   標高点の標高（7311・7312 の Elev）')
+        print('     ビューワが描く %4d件  (%s・text-allow-overlap で全件描く)'
+              % (len(drawn), codes))
+        print('     図面のラベル   %4dか所  （半角。記号の脇）' % len(on))
+        d = len(on) - len(drawn)
+        if d > 0:
+            byblank = collections.Counter(c for c, _, _ in blank)
+            note = ' / '.join('%s %d件' % (c, n) for c, n in sorted(byblank.items()))
+            print('     → 図面のほうが %d件多い（DMに標高が入っていない。%s）'
+                  % (d, note or '内訳なし'))
+        else:
+            print('     → 図面より %d件多く描いている' % -d)
 
 
 def filled_shapes(page, aff):
@@ -291,6 +407,9 @@ def main() -> None:
     if kinds:
         print('     数値以外の内訳:',
               ', '.join(f'{t}×{c}' if c > 1 else t for t, c in kinds.most_common(15)))
+
+    # ---- 4. ビューワが描く派生ラベル ----
+    report_elev_labels(spans)
 
     if '--crops' in sys.argv and top:
         out = ROOT / 'output' / 'reconcile'

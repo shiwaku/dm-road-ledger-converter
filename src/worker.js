@@ -6,7 +6,7 @@
 const path = require('path');
 const { parentPort, workerData } = require('worker_threads');
 const GeoJSONWriter = require('./geojsonWriter');
-const { KINDS, convertFiles } = require('./convert');
+const { KINDS, convertFiles, emptySkipped } = require('./convert');
 
 const { files, epsg, tmpDir, index } = workerData;
 
@@ -15,10 +15,12 @@ for (const kind of KINDS) {
   writers[kind] = new GeoJSONWriter(path.join(tmpDir, `${kind}.${index}.part`), epsg, { fragment: true });
 }
 
+// 変換対象外として読み飛ばしたレコードの集計。メインプロセスがワーカー分をまとめて出す
+let skipped = emptySkipped();
 try {
-  convertFiles(files, writers, (f) => parentPort.postMessage({ type: 'file', file: f }));
+  skipped = convertFiles(files, writers, (f) => parentPort.postMessage({ type: 'file', file: f }));
 } finally {
   for (const kind of KINDS) writers[kind].close();
 }
 
-parentPort.postMessage({ type: 'done', index });
+parentPort.postMessage({ type: 'done', index, skipped });
