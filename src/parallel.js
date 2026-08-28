@@ -9,7 +9,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { Worker } = require('worker_threads');
-const { KINDS } = require('./convert');
+const { KINDS, emptySkipped, mergeSkipped } = require('./convert');
 
 /** files を n 個の連続したかたまりに分ける（要素数が均等になるように）。 */
 function chunk(files, n) {
@@ -59,6 +59,7 @@ function mergeParts(outFile, parts) {
  * @param {number}   epsg     入力座標系
  * @param {string}   outDir   最終出力先
  * @param {number}   jobs     ワーカー数
+ * @returns {import('./convert').Skipped} 読み飛ばしたレコードの集計
  */
 async function convertParallel(files, epsg, outDir, jobs) {
   const groups = chunk(files, Math.min(jobs, files.length));
@@ -66,18 +67,21 @@ async function convertParallel(files, epsg, outDir, jobs) {
 
   try {
     let done = 0;
-    await Promise.all(
+    // Promise.all は groups の並びで返るため、集計もファイル順にまとまる
+    const perWorker = await Promise.all(
       groups.map(
         (group, index) =>
           new Promise((resolve, reject) => {
             const w = new Worker(path.join(__dirname, 'worker.js'), {
               workerData: { files: group, epsg, tmpDir, index },
             });
+            let skipped = emptySkipped();
             w.on('message', (msg) => {
               if (msg.type === 'file') console.log(`[${++done}/${files.length}] ${msg.file}`);
+              if (msg.type === 'done') skipped = msg.skipped;
             });
             w.on('error', reject);
-            w.on('exit', (code) => (code === 0 ? resolve() : reject(new Error(`ワーカーが異常終了しました (code ${code})`))));
+            w.on('exit', (code) => (code === 0 ? resolve(skipped) : reject(new Error(`ワーカーが異常終了しました (code ${code})`))));
           }),
       ),
     );
@@ -86,6 +90,8 @@ async function convertParallel(files, epsg, outDir, jobs) {
       const parts = groups.map((_, i) => path.join(tmpDir, `${kind}.${i}.part`));
       mergeParts(path.join(outDir, `道路台帳図_${kind}.geojson`), parts);
     }
+
+    return perWorker.reduce(mergeSkipped, emptySkipped());
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }

@@ -14,6 +14,20 @@ class DM {
   constructor(inDMFile) {
     this._DMFile = inDMFile;
     this._elementDict = null;
+    this._skipped = null;
+  }
+
+  /**
+   * 変換対象外として読み飛ばしたEレコードの件数。レコード種別ごとに数える。
+   * 円（E3）・円弧（E4）・属性（E8）が該当する。
+   *
+   * レコード送りは recordcnt+1 で正しく進むためファイルの解析は壊れないが、
+   * 該当する地物は出力に現れない。黙って消えると「変換したのに図面と違う」の
+   * 原因がここだと気づけないため、呼び出し側が件数を出せるように持っておく。
+   */
+  get skipped() {
+    this._parse();
+    return this._skipped;
   }
 
   _decode(buf, start, end) {
@@ -64,6 +78,7 @@ class DM {
   _parse() {
     if (this._elementDict !== null) return;
     this._elementDict = {};
+    this._skipped = {};
 
     const buf = fs.readFileSync(this._DMFile);
 
@@ -266,6 +281,8 @@ class DM {
           recno += recordcnt + 1;
 
         } else {
+          // 円（E3）・円弧（E4）・属性（E8）。変換対象外だが件数だけ数える
+          this._skipped[curRectype] = (this._skipped[curRectype] || 0) + 1;
           recno += recordcnt + 1;
         }
 
@@ -297,3 +314,4 @@ class DM {
 }
 
 module.exports = DM;
+module.exports.DATATYPE_MAP = DATATYPE_MAP;
