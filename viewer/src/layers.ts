@@ -44,6 +44,8 @@ export const TILES_HREF = PMTILES_BASE
  * 出典の具体名はここに直書きせず `DATA_ATTRIBUTION` から差し込む。表示するPMTilesは
  * 利用者が `scripts/build.sh` で焼いたもので、どのデータかはビューワからは分からないため。
  * パネル下部の脚注にも同じ文言と利用条件を出す。
+ * 変換ツール（このリポジトリ）へのリンクは帰属には入れない。データの出典ではなく、
+ * 脚注の「変換:」に既にあるため。
  */
 
 /**
@@ -66,13 +68,7 @@ export const DEFAULT_DATA_ATTRIBUTION = '測量法に基づく豊中市長承認
 export const DATA_ATTRIBUTION: string =
   import.meta.env.VITE_DM_ATTRIBUTION ?? DEFAULT_DATA_ATTRIBUTION
 
-const ATTRIBUTION = [
-  '道路台帳平面図（DM）',
-  DATA_ATTRIBUTION,
-  '<a href="https://github.com/shiwaku/dm-road-ledger-converter" target="_blank" rel="noopener">dm-road-ledger-converter</a>',
-]
-  .filter(Boolean)
-  .join(' / ')
+const ATTRIBUTION = ['道路台帳平面図（DM）', DATA_ATTRIBUTION].filter(Boolean).join(' / ')
 
 export const SOURCES: Record<string, SourceSpecification> = {
   [SOURCE_ID]: {
