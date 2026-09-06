@@ -20,6 +20,10 @@
 #   SKIP_TILES=1     MBTiles / PMTiles を作らない
 #
 #   VITE_DM_PROVIDERS=...  点検で使う拡張DMの提供元（既定はビューワと同じ）
+#   ATTRIBUTION="..."      タイルのメタデータに入れる帰属・承認の文言（tippecanoe -A）。
+#                          測量成果の使用承認で明示を求められる文言を、承認書の指定どおりに
+#                          書く。未指定なら入れず、最後に注意を出す（ビューワの表示は
+#                          viewer の VITE_DM_ATTRIBUTION が別に持つ）
 #
 set -euo pipefail
 
@@ -185,6 +189,14 @@ done
 ATTR_ARGS=()
 for attr in "${TILE_ATTRS[@]}"; do ATTR_ARGS+=(-y "$attr"); done
 
+# タイルのメタデータ。name は既定だと mbtiles のフルパスになり、配布物に
+# ローカルのパスが残るので固定する。attribution は承認書の文言をそのまま入れる。
+# タイルは単体で QGIS 等に読まれることがあり、ビューワの表示とは別に持たせる必要がある。
+META_ARGS=(-n "道路台帳平面図（DM）")
+if [ -n "${ATTRIBUTION:-}" ]; then
+  META_ARGS+=(-A "$ATTRIBUTION")
+fi
+
 tippecanoe \
   -o "$OUT/road_ledger.mbtiles" \
   -Z "$ZMIN" -z "$ZMAX" \
@@ -192,12 +204,18 @@ tippecanoe \
   --no-feature-limit \
   --no-tile-size-limit \
   --force \
+  "${META_ARGS[@]}" \
   "${ATTR_ARGS[@]}" \
   -j "$(tile_filter)" \
   "${LAYER_ARGS[@]}"
 
 pmtiles convert "$OUT/road_ledger.mbtiles" "$OUT/road_ledger.pmtiles"
 echo "  road_ledger.pmtiles"
+if [ -z "${ATTRIBUTION:-}" ]; then
+  printf '\n\033[1m!! タイルに帰属・承認の文言が入っていません（ATTRIBUTION 未指定）\033[0m\n'
+  echo "   測量成果の使用承認で明示を求められている場合は、承認書の文言をそのまま指定してください。"
+  echo "   例: ATTRIBUTION='測量法に基づく豊中市長承認（使用）R8 豊基管第304号' scripts/build.sh ..."
+fi
 
 log "完了"
 ls -la "$OUT" | awk 'NR>3 {printf "  %10d  %s\n", $5, $9}'
