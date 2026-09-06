@@ -46,7 +46,10 @@ const map = new maplibregl.Map({
   center: [135.4696, 34.7805],
   zoom: 17,
   minZoom: 4,
-  maxZoom: 21,
+  // 表示上限は z20（dm-converter のビューワと同じ）。タイルは z18 までしか焼いていないので
+  // それ以上はオーバーズームで描く。地上サイズ固定（groundSize）の補間は z21 まで
+  // 定義してあるが、上限を超えるぶんは届かないだけで害はない
+  maxZoom: 20,
   maxPitch: 85,
   // 地図位置を URL の #ズーム/緯度/経度 に反映（共有・リロード時の位置維持）
   hash: true,
