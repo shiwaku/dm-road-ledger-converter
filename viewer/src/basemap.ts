@@ -143,10 +143,11 @@ const PROVIDERS: string[] = String(import.meta.env.VITE_DM_PROVIDERS ?? DEFAULT_
  *   dm-4132           → { provider: null,       code: '4132' }      標準図式
  *   dm-ext1-2245      → { provider: 'ext1',     code: '2245' }      拡張DM（提供元未特定）
  *   dm-ext1-9101100   → { provider: 'ext1',     code: '9101100' }   同（コードが7桁のもの）
- *   dm-toyonaka-4191  → { provider: 'toyonaka', code: '4191' }      拡張DM（豊中市。作成中）
+ *   dm-toyonaka-4145  → { provider: 'toyonaka', code: '4145' }      拡張DM（豊中市の区画）
  *
- * いま配信されている区画は `ext1` だけ。豊中市の区画は dm-sprite で作成中で、
- * それまで `4191` は ICON_ALIASES で `dm-4161` を指して解決している。
+ * 配信されている区画は `ext1`（6コード）と `toyonaka`（7コード。dm-sprite#30）。
+ * 豊中市の区画に `4191` は無い（図面で `4161` と同じ意匠なので dm-sprite は作らないと
+ * 決めた）ため、`4191` は ICON_ALIASES で `dm-4161` を指して解決している。
  *
  * 分類コードは数字だけなので、末尾の数字列をコード、その手前を提供元として切る
  * （dm-sprite#23 の命名。`dm-ext1-9101100` のように7桁のものもある）。

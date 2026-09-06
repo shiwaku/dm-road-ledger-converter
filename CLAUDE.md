@@ -228,12 +228,13 @@ EPSG=6674 scripts/build.sh /path/to/dm_dir
   アイコンの有無でレイヤーを2つに振り分け、無い側は丸で位置を出す
 - **スプライトのキーは `dm-<コード>` だけではない。** 拡張DM（標準図式に無いコード）は
   提供元の区画が挟まる（`dm-ext1-2245`・`dm-ext1-9101100`。dm-sprite#23）。
-  **いま配信されている区画は `ext1` だけ。** 豊中市の区画（`dm-toyonaka-<コード>.svg`）は
-  dm-sprite で作成中。それまで `4191` は `ICON_ALIASES` で `dm-4161` を指して解決する。
+  **配信されている区画は `ext1`（6コード）と `toyonaka`（7コード。2026年8月15日の
+  dm-sprite#30 から）。** 豊中市の区画に `4191` は無い（図面で `4161` と同じ意匠なので
+  dm-sprite は作らないと決めた）ため、`4191` は `ICON_ALIASES` で `dm-4161` を指して解決する。
   `toyonaka` は区画と代替表の両方を引き当てるキー。**区画が来たら自動でそちらが勝つ**
   （`loadSpriteIcons()` は 標準 → 区画 → 代替表 の順に採る）ので、
-  そのとき `ICON_ALIASES` の `4191` を外す。`npm run check:extended` の表示が
-  `dm-4161（toyonaka の代替表）` → `dm-toyonaka-4191（toyonaka の区画）` に変わる
+  もし `dm-toyonaka-4191` が来たら `ICON_ALIASES` の `4191` を外す。`npm run check:extended`
+  の表示が `dm-4161（toyonaka の代替表）` → `dm-toyonaka-4191（toyonaka の区画）` に変わる
   連結だけで引くと**静かに劣化する**（アイコンが出なくなるが、代替図形に回るので
   エラーにならず気づけない。実際 `dm-2245` の改名で豊中5件が丸に落ちていた）。
   `basemap.ts` の `loadSpriteIcons()` が索引を「分類コード → キー」の対応表にし、
