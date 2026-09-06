@@ -41,13 +41,38 @@ export const TILES_HREF = PMTILES_BASE
  * MapLibre が帰属コントロールごと隠す（`maplibregl-attrib-empty`）。
  * 右下の ⓘ が背景を切り替えたときだけ消える、という挙動になっていた。
  *
- * 出典の具体名（自治体名）は入れない。表示するPMTilesは利用者が
- * `scripts/build.sh` で焼いたもので、どのデータかはここでは分からないため。
- * パネル下部の脚注に利用条件を書いてある。
+ * 出典の具体名はここに直書きせず `DATA_ATTRIBUTION` から差し込む。表示するPMTilesは
+ * 利用者が `scripts/build.sh` で焼いたもので、どのデータかはビューワからは分からないため。
+ * パネル下部の脚注にも同じ文言と利用条件を出す。
  */
-const ATTRIBUTION =
-  '道路台帳平面図（DM） / ' +
-  '<a href="https://github.com/shiwaku/dm-road-ledger-converter" target="_blank" rel="noopener">dm-road-ledger-converter</a>'
+
+/**
+ * 表示中のデータに付ける承認・出典の文言。
+ *
+ * 測量成果の使用承認には「成果品の見やすいところに承認番号を明示すること」が条件として
+ * 付く。同梱の検証データ（豊中市サンプル 図郭57-08）は 2026年8月27日付の
+ * 測量成果使用承認書（豊基管第304号）で、次のいずれかの明示が求められている。
+ *
+ *   「測量法に基づく豊中市長承認（使用）R8 豊基管第304号」
+ *   「この地図の作成に当たっては、豊中市長の承認を得て、同市発行の豊中市道路台帳平面図
+ *     DM500を使用したものである（豊中市長承認（使用）R8 豊基管第304号）」
+ *
+ * **文言は承認書の指定どおりに書く（言い換えない）。** どのPMTilesを表示しているかは
+ * ビューワから判定できないので、`VITE_DM_PROVIDERS` と同じく**既定は同梱データに合わせる**。
+ * 別のデータを焼いて表示するときは `VITE_DM_ATTRIBUTION` で上書きするか空にすること。
+ * 空にすると帰属コントロールと脚注からこの文言が消える（他所の承認番号を出さないため）。
+ */
+export const DEFAULT_DATA_ATTRIBUTION = '測量法に基づく豊中市長承認（使用）R8 豊基管第304号'
+export const DATA_ATTRIBUTION: string =
+  import.meta.env.VITE_DM_ATTRIBUTION ?? DEFAULT_DATA_ATTRIBUTION
+
+const ATTRIBUTION = [
+  '道路台帳平面図（DM）',
+  DATA_ATTRIBUTION,
+  '<a href="https://github.com/shiwaku/dm-road-ledger-converter" target="_blank" rel="noopener">dm-road-ledger-converter</a>',
+]
+  .filter(Boolean)
+  .join(' / ')
 
 export const SOURCES: Record<string, SourceSpecification> = {
   [SOURCE_ID]: {

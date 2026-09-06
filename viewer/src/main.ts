@@ -4,6 +4,7 @@ import 'maplibre-gl/dist/maplibre-gl.css'
 
 import { getBasemapStyle, loadSpriteIcons, spriteProviders, type Basemap } from './basemap'
 import {
+  DATA_ATTRIBUTION,
   GROUPS,
   SOURCES,
   SOURCE_ID,
@@ -466,6 +467,14 @@ map.on('click', (ev) => {
 // ---- 初期化 ----
 const buildEl = document.getElementById('build-ver')
 if (buildEl) buildEl.textContent = `build: ${__BUILD_TIME__}`
+// 測量成果の使用承認で明示を求められている文言。帰属コントロール（右下ⓘ）は畳まれて
+// 見えないことがあるので、脚注にも同じ文言を出す。空なら行ごと消す
+const attribEl = document.getElementById('data-attrib')
+const attribText = document.getElementById('data-attrib-text')
+if (attribEl && attribText) {
+  attribText.textContent = DATA_ATTRIBUTION
+  attribEl.hidden = !DATA_ATTRIBUTION
+}
 renderThemeBtn()
 buildToggles()
 // スマホでは初期状態でパネルを畳んで地図を広く見せる
