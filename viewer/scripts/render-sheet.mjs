@@ -133,6 +133,37 @@ const height = Number(arg('height', 1200))
 const out = resolve(arg('out', join(VIEWER, 'sheet.png')))
 const base = arg('base', 'blank')
 
+/**
+ * 描く種類を絞る（インクの内訳を分けるため。raster-diff.py --breakdown が使う）。
+ *
+ *   strokes  線・面の輪郭（road_line* / road_polygon*。ラベルの road_*_elev は除く）
+ *   icons    記号・方向のアイコンと代替図形の丸（road_symbol_* / road_direction_*）
+ *   text     注記と標高値のラベル（road_annotation / road_*_elev）
+ *
+ * 未指定なら全部描く。アイコンは icon-allow-overlap / icon-ignore-placement が真、
+ * 標高点と注記のラベルも text-allow-overlap が真なので、単独で描いても全部描いたときと
+ * 同じ絵になる。**等高線のラベル（road_line_elev）だけは衝突判定に任せている**ので、
+ * 単独で描くと他の文字と競合しないぶん増える可能性がある。内訳の「文字」は
+ * 全部描いた絵から線とアイコンを引いた残りで出すのが安全で、text 単独の絵は
+ * ラベル数を数える用途に使う。
+ */
+const CLASS_OF = (id) => {
+  if (/_elev$/.test(id) || id === 'road_annotation') return 'text'
+  if (/^road_(symbol|direction)_/.test(id)) return 'icons'
+  if (/^road_(line|polygon)/.test(id)) return 'strokes'
+  return null
+}
+const only = arg('only', '')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean)
+for (const c of only) {
+  if (!['strokes', 'icons', 'text'].includes(c)) {
+    console.error('--only は strokes / icons / text のカンマ区切りで指定してください: ' + c)
+    process.exit(1)
+  }
+}
+
 const { proc, url } = await startVite()
 const browser = await puppeteer.launch({
   executablePath: chromePath(),
@@ -172,28 +203,53 @@ try {
     window.__dmMap.jumpTo({ center: v.center, zoom: v.zoom, bearing: v.bearing, pitch: 0 })
   }, { center, zoom, bearing })
 
+  // 描く種類を絞る。パネルのトグルは「線」グループに等高線ラベルを含むなど
+  // 内訳の切り方と一致しないので、レイヤーIDで直接 visibility を切る
+  const hidden = await page.evaluate((v) => {
+    const m = window.__dmMap
+    const classOf = new Function('id', v.classOfSrc)
+    const off = []
+    for (const l of m.getStyle().layers) {
+      if (!l.id.startsWith('road_')) continue
+      const c = classOf(l.id)
+      if (v.only.length && !v.only.includes(c)) {
+        m.setLayoutProperty(l.id, 'visibility', 'none')
+        off.push(l.id)
+      }
+    }
+    return off
+  }, { only, classOfSrc: 'return (' + CLASS_OF.toString() + ')(id)' })
+
   // タイルとスプライトが出そろうまで待つ。地物が1つも描かれていない状態で
   // 「完了」と見なさないよう、実際に描かれた数も条件に入れる
   await page.waitForFunction(
-    () => {
+    (hidden) => {
       const m = window.__dmMap
       if (!m.loaded() || !m.areTilesLoaded()) return false
-      const ids = m.getStyle().layers.map((l) => l.id).filter((i) => i.startsWith('road_'))
+      const ids = m.getStyle().layers.map((l) => l.id)
+        .filter((i) => i.startsWith('road_') && !hidden.includes(i))
       return m.queryRenderedFeatures({ layers: ids }).length > 0
     },
     { timeout: 180000, polling: 250 },
+    hidden,
   )
   await new Promise((r) => setTimeout(r, 2000))   // ラベルの配置が落ち着くのを待つ
 
-  const got = await page.evaluate(() => {
+  // 実際に描かれた地物の数をレイヤーごとに返す。symbol レイヤーでは衝突判定で
+  // 間引かれたラベルは queryRenderedFeatures に出ないので、「画面に出た数」になる
+  const got = await page.evaluate((hidden) => {
     const m = window.__dmMap
     const c = m.getCenter()
-    const ids = m.getStyle().layers.map((l) => l.id).filter((i) => i.startsWith('road_'))
+    const ids = m.getStyle().layers.map((l) => l.id)
+      .filter((i) => i.startsWith('road_') && !hidden.includes(i))
+    const perLayer = {}
+    for (const id of ids) perLayer[id] = m.queryRenderedFeatures({ layers: [id] }).length
     return {
       lng: c.lng, lat: c.lat, zoom: m.getZoom(), bearing: m.getBearing(),
       features: m.queryRenderedFeatures({ layers: ids }).length, layers: ids.length,
+      hidden, perLayer,
     }
-  })
+  }, hidden)
   // ページのスクリーンショットではなく、WebGLキャンバスから直に読み出す。
   // 合成経由だと地図が真っ白で返ることがあり、UIが重なる余地も残る。
   // ここで読めるのは canvasContextAttributes.preserveDrawingBuffer が真のときだけ
