@@ -395,9 +395,11 @@ npm run check:extended -- --json
 ■ 拡張コード（標準図式に無い）: 28 コード / 860 件（14.8%）
    コード  件数    地物          アイコン
    2229     133  線・面        （アイコンを使わない地物）
-   4143     119  記号・方向    ―（代替図形の丸）
+   4143     119  記号・方向    dm-4231（toyonaka の代替表）
+   4145     100  記号・方向    dm-toyonaka-4145（toyonaka の区画）
    4191      82  記号          dm-4161（toyonaka の代替表）
    2245       5  方向          dm-ext1-2245（ext1 の区画）
+   8132       3  記号・注記    ―（代替図形の丸）
 ```
 
 判定の根拠は dm-sprite の [`data/standard-codes.csv`](https://github.com/shiwaku/dm-sprite/blob/main/data/standard-codes.csv)（453コード）です。標準か拡張かの機械判定のために起こされた表で、これだけが完全です。`viewer/src/dmCodes.ts`（435件）や dm-sprite の `data/symbols.csv`（372件）は欠けがあるため判定には使いません。ネットワークが使えない場合は隣に置いた `../dm-sprite` のクローンを見にいきます（`--codes=<path>` で差し替えもできます）。
