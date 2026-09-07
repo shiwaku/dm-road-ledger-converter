@@ -13,6 +13,7 @@ import {
   groupOf,
   popupHtml,
   POPUP_MAX_ITEMS,
+  stubImage,
   type GroupKey,
   type LayerEntry,
   type LayerGroup,
@@ -117,6 +118,13 @@ const missingImages = new Set<string>()
 
 function handleMissingImage(id: string): void {
   if (map.hasImage(id)) return
+  // 電柱の向きを示す短い線はスプライトに無く、ここで作って渡す（layers.ts の STUB_CODES）。
+  // テーマ切替で setStyle し直すと画像も消えるので、要求されるたびに作り直す
+  const stub = stubImage(id)
+  if (stub) {
+    map.addImage(id, stub)
+    return
+  }
   // 1x1 の透明画像。RGBA 4バイト。
   map.addImage(id, { width: 1, height: 1, data: new Uint8Array(4) })
   if (!missingImages.has(id)) {
