@@ -290,6 +290,102 @@ const ICON_SIZE: unknown[] = [
   ICON_SCALE * 4,
 ]
 
+// ---- 電柱の向きを示す短い線（スタブ） ----
+//
+// 電柱系の方向要素（E6）は1要素に複数のペアが入り、豊中サンプルでは107要素／305件が
+// 該当する。**全要素でペアの起点座標が同一**で、違うのは角度だけ（架線・支線の向き）。
+// ペアごとに同じアイコンを角度違いで重ね描きすると、`4145` の斜線入りの円が
+// 2〜7回重なって真っ黒の円盤になる（Issue #35）。
+//
+// PDF図面は、約0.54mの円を要素につき**1個**描き、ペアごとに円の縁（半径0.27m）から
+// 約0.5mの短い線を1本出している（`4132-0022` は円1個＋線5本。向きはDMの角度と一致）。
+// DMのペア長は全コード3.00mの定型値なので、線の長さはデータからは取れず図面の値を使う。
+//
+// ビューワも同じにする。アイコンは `Seq == 1` にだけ描き、線はペアごとに描く。
+// 線は中心から引き、記号アイコンを上に重ねて内側を隠す。こうすると「アイコンの縁から
+// 線が出ている」見え方になり、アイコンの大きさがコードごとに違っても破綻しない。
+//
+// 図面では線の先端は中心から 0.27+0.5＝0.77m だが、**そのままではアイコンの下に隠れる。**
+// 電柱系のアイコンは ICON_SCALE 0.5 でも中心から 0.61m（`dm-4142` は 0.80m）あり、
+// 図面の円（半径0.27m）の2倍以上大きい（Issue #13。スプライトのインクが 20px 級）。
+// そこでアイコンの縁から図面と同じ 0.5m 出る 1.1m にしてある。#13 でアイコンが図面の
+// 大きさに近づいたら 0.77m へ戻す。
+//
+// 線の画像はスプライトに置かず起動時に canvas で作る（`stubImage`）。図面の描き方の
+// 話であって記号の意匠ではないので dm-sprite に足さない。テーマで線色が変わるため
+// 画像名にテーマを含め、`styleimagemissing` で要求されたときに作る（main.ts）。
+
+/**
+ * スタブを描く分類コード。豊中サンプルで複数ペアを持つE6要素の全コード。
+ * `4132` 電話柱・`4142` 電力柱は標準図式、残りは豊中市の拡張コード（電柱系）。
+ * 単一ペアの要素も同じ描き方になる（円形のアイコンを回すだけでは向きが出ない）。
+ */
+const STUB_CODES = ['4132', '4133', '4134', '4142', '4143', '4145']
+
+/** スタブ画像の設計解像度（画像の1pxが地上何mか、の逆数）。 */
+const STUB_DESIGN_PX_PER_M = 32
+/**
+ * 中心から線の先端まで。図面は円の半径0.27m＋線0.5m＝0.77m だが、アイコンの半径
+ * （0.61m）に隠れるので、その縁から0.5m出る長さにしている（上の説明を参照）。
+ */
+const STUB_LENGTH_M = 1.1
+/** 線の太さ。図面の線は0.04〜0.2m。 */
+const STUB_WIDTH_M = 0.08
+
+/** スタブ画像の名前。テーマで線色が変わるため名前に含める。 */
+export const STUB_IMAGE_PREFIX = 'dm-stub-'
+const stubImageId = (theme: Theme): string => `${STUB_IMAGE_PREFIX}${theme}`
+
+/**
+ * スタブ画像を作る。`styleimagemissing` で `dm-stub-<theme>` を要求されたときに呼ぶ。
+ * 名前がスタブでなければ null。
+ *
+ * 左端中央がアンカー（`icon-anchor: left`）で、右向きに線を引く。
+ */
+export function stubImage(id: string): ImageData | null {
+  if (!id.startsWith(STUB_IMAGE_PREFIX)) return null
+  const theme = id.slice(STUB_IMAGE_PREFIX.length) as Theme
+  const w = Math.round(STUB_LENGTH_M * STUB_DESIGN_PX_PER_M)
+  const h = Math.max(2, Math.round(STUB_WIDTH_M * STUB_DESIGN_PX_PER_M)) + 2
+  const canvas = document.createElement('canvas')
+  canvas.width = w
+  canvas.height = h
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return null
+  ctx.strokeStyle = inkFor(theme).line
+  ctx.lineWidth = STUB_WIDTH_M * STUB_DESIGN_PX_PER_M
+  ctx.beginPath()
+  ctx.moveTo(0, h / 2)
+  ctx.lineTo(w, h / 2)
+  ctx.stroke()
+  return ctx.getImageData(0, 0, w, h)
+}
+
+/** スタブの `icon-size`。設計解像度の画像を地上サイズ固定で出す倍率。 */
+const STUB_SIZE: unknown[] = [
+  'interpolate',
+  ['exponential', 2],
+  ['zoom'],
+  19,
+  PX_PER_M_Z19 / STUB_DESIGN_PX_PER_M,
+  21,
+  (PX_PER_M_Z19 / STUB_DESIGN_PX_PER_M) * 4,
+]
+
+/** スタブを描くコードか。 */
+const IS_STUB_CODE: unknown[] = ['in', ['to-string', ['get', 'Code']], ['literal', STUB_CODES]]
+
+/**
+ * 要素につき1個だけ描くためのフィルタ。スタブを描くコードは先頭ペア（`Seq == 1`）に
+ * 限り、それ以外のコードは全件通す。`Seq` の無いタイル（載せる前に焼いたもの）では
+ * 全件通す（重ね描きに戻るだけで消えはしない）。
+ */
+const FIRST_PAIR_ONLY: unknown[] = [
+  'any',
+  ['!', IS_STUB_CODE],
+  ['==', ['coalesce', ['to-number', ['get', 'Seq']], 1], 1],
+]
+
 // ---- 注記の字高 ----
 //
 // 分類コード別の字高はPDF図面の実測値（スパンのフォントサイズ ÷ 5.6687 pt/m）。
@@ -660,6 +756,31 @@ export function buildLayers(theme: Theme, spriteIcons: Map<string, string>): Lay
         },
       },
     },
+    // 方向 — 電柱の向きを示す短い線。ペアごとに1本。アイコンより先に描いて
+    // 内側をアイコンで隠す（STUB_CODES の説明を参照）
+    {
+      group: 'direction',
+      opacity: { 'icon-opacity': 1 },
+      spec: {
+        id: 'road_direction_stub',
+        type: 'symbol',
+        source: SOURCE_ID,
+        'source-layer': 'road_direction',
+        minzoom: DETAIL_MINZOOM,
+        filter: IS_STUB_CODE as never,
+        layout: {
+          'icon-image': stubImageId(theme),
+          'icon-size': STUB_SIZE as never,
+          'icon-rotate': ICON_ROTATE as never,
+          'icon-rotation-alignment': 'map',
+          // 左端が電柱の位置。回転は icon-anchor を軸にかかる
+          'icon-anchor': 'left',
+          'icon-allow-overlap': true,
+          'icon-ignore-placement': true,
+        },
+        paint: { 'icon-opacity': 1 },
+      },
+    },
     // 方向 — アイコンが無いコードは記号と同じ丸で位置だけ示す
     {
       group: 'direction',
@@ -670,7 +791,7 @@ export function buildLayers(theme: Theme, spriteIcons: Map<string, string>): Lay
         source: SOURCE_ID,
         'source-layer': 'road_direction',
         minzoom: DETAIL_MINZOOM,
-        filter: lacksIcon(spriteCodes) as never,
+        filter: ['all', lacksIcon(spriteCodes), FIRST_PAIR_ONLY] as never,
         paint: {
           'circle-radius': FALLBACK_RADIUS as never,
           // 地色で抜いて中空の丸にする。ink.fill（白）だとダークテーマで
@@ -692,7 +813,7 @@ export function buildLayers(theme: Theme, spriteIcons: Map<string, string>): Lay
         source: SOURCE_ID,
         'source-layer': 'road_direction',
         minzoom: DETAIL_MINZOOM,
-        filter: hasIcon(spriteCodes) as never,
+        filter: ['all', hasIcon(spriteCodes), FIRST_PAIR_ONLY] as never,
         layout: {
           'icon-image': ICON_IMAGE as never,
           'icon-size': ICON_SIZE as never,

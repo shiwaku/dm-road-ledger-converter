@@ -48,8 +48,9 @@ ANNOTATION_MIN_ZOOM=17
 
 # タイルに残す属性。描画に必要なものだけに絞る。
 # Elno はフィーチャごとにユニークな文字列で、タイル内の文字列辞書を最も膨らませる。
-# RecordType / DataType / DataKind / Scale / Vnflag / Seq はポップアップ表示専用のため落とす。
-TILE_ATTRS=(Code Text Angle Elev)
+# RecordType / DataType / DataKind / Scale / Vnflag はポップアップ表示専用のため落とす。
+# Seq はビューワが電柱の向き（複数ペアのE6）を要素につき1個のアイコンで描くのに使う。
+TILE_ATTRS=(Code Text Angle Elev Seq)
 
 have() { command -v "$1" >/dev/null 2>&1; }
 log() { printf '\n\033[1m==> %s\033[0m\n' "$*"; }
