@@ -645,9 +645,10 @@ export function buildLayers(theme: Theme, spriteIcons: Map<string, string>): Lay
           'text-field': ELEV_LABEL as never,
           'text-font': TEXT_FONT,
           'text-size': groundSize(0.99) as never,   // PDF図面の標高値と同じ地上0.99m
-          // 記号に重ならないよう右上へずらす
+          // 図面と同じ位置に置く。PDF図面の実測（7312 259点）で標高値の左端は点の +0.50m 東、
+          // 上下は点の中心と同じ高さ（dN +0.01m）。右上へ逃がすと図面より0.6m高く出る
           'text-anchor': 'left',
-          'text-offset': [0.6, -0.6],
+          'text-offset': [0.5, 0],
           'text-allow-overlap': true,
           'text-ignore-placement': true,
         },
@@ -717,9 +718,10 @@ export function buildLayers(theme: Theme, spriteIcons: Map<string, string>): Lay
           'text-field': ELEV_LABEL as never,
           'text-font': TEXT_FONT,
           'text-size': groundSize(0.99) as never,   // PDF図面の標高値と同じ地上0.99m
-          // 記号に重ならないよう右上へずらす
+          // 図面と同じ位置に置く。PDF図面の実測（7312 259点）で標高値の左端は点の +0.50m 東、
+          // 上下は点の中心と同じ高さ（dN +0.01m）。右上へ逃がすと図面より0.6m高く出る
           'text-anchor': 'left',
-          'text-offset': [0.6, -0.6],
+          'text-offset': [0.5, 0],
           'text-allow-overlap': true,
           'text-ignore-placement': true,
         },
