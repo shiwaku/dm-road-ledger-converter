@@ -12,7 +12,7 @@
 
 **座標オフセットの単位はミリメートル（`/1000`）** で、dm-converter のセンチメートル（`/100`）と異なる。
 入れ替えて使うと座標が10倍ずれる。単位を変更するときは、必ず図郭サイズと
-座標オフセットの実測で裏を取ること（README「dm-converter との違い」に実測表がある）。
+座標オフセットの実測で裏を取ること（`docs/dm-format.md`「dm-converter との違い」に実測表がある）。
 
 ## ディレクトリ構成
 
@@ -35,10 +35,17 @@ dm-road-ledger-converter/
 │   ├── measure-pdf.py            PDF図面の実測（線幅・破線・記号の大きさ・字高）
 │   ├── raster-diff.py            ビューワの描画結果とPDF図面のラスタ差分（インクの内訳）
 │   └── geojson2parquet.py        GeoParquet変換（ogr2ogr が使えない環境向け）
-├── docs/
+├── docs/                 README の分冊（README 本体は短く保つ）
+│   ├── dm-format.md          道路台帳図とDMデータ・dm-converter との違い
+│   ├── output-spec.md        出力ファイルと属性・E6/E7・標高値・座標系
+│   ├── build-and-tiles.md    build.sh・環境変数・タイル設計
+│   ├── extended-codes.md     拡張コードの点検・提供元・代替表
+│   ├── verification.md       SHP版・PDF全数照合・実測・ラスタ差分
+│   ├── legal.md              測量法上の扱い・豊中市の承認・ライセンス
 │   ├── 検証データ調査.md
 │   └── 豊中市DM500入手手順.md
 ├── viewer/               PMTiles を表示するWebビューワ（MapLibre GL JS + Vite）
+│   ├── README.md             ビューワの描き方の根拠（線幅・アイコン・角度・帰属）
 │   ├── src/main.ts           地図初期化・パネルUI・イベント配線
 │   ├── src/layers.ts         ソース定義・レイヤー定義・ポップアップ
 │   ├── src/basemap.ts        背景地図（淡色/標準/写真/白図）とダーク化

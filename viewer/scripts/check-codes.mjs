@@ -118,7 +118,7 @@ if (scoped.length) {
   console.log(
     '   ビューワで使うには VITE_DM_PROVIDERS=' +
       [...byProvider.keys()].join(',') +
-      ' を指定する（README「拡張DMコードの提供元を指定する」）。',
+      ' を指定する（docs/extended-codes.md「提供元を指定する」）。',
   )
 }
 
