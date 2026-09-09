@@ -2,15 +2,23 @@ import maplibregl from 'maplibre-gl'
 import { Protocol } from 'pmtiles'
 import 'maplibre-gl/dist/maplibre-gl.css'
 
-import { getBasemapStyle, loadSpriteIcons, spriteProviders, type Basemap } from './basemap'
+import {
+  getBasemapStyle,
+  loadSpriteIcons,
+  loadSpriteInk,
+  spriteProviders,
+  type Basemap,
+} from './basemap'
 import {
   DATA_ATTRIBUTION,
   GROUPS,
+  ICON_HIT_LAYERS,
   SOURCES,
   SOURCE_ID,
   TILES_HREF,
   buildLayers,
   groupOf,
+  iconReachPx,
   popupHtml,
   POPUP_MAX_ITEMS,
   stubImage,
@@ -36,6 +44,10 @@ maplibregl.addProtocol('pmtiles', protocol.tile)
 // どのコードが描けるかは起動時にスプライトの索引から読む（読めなければ全コードを代替図形で描く）。
 // 拡張DMコードは提供元の区画つきキーなので、VITE_DM_PROVIDERS に挙げた提供元だけを引く。
 const spriteIcons = await loadSpriteIcons()
+
+// クリックの当たり判定を「見えている範囲」に絞るためのインク寸法。
+// 読めなくても表示には影響しない（判定が広めに戻るだけ）。
+const spriteInk = await loadSpriteInk(spriteIcons)
 
 // レイヤーの色はテーマで入れ替わるため、テーマを変えたら組み立て直す。
 let LAYERS: LayerEntry[] = buildLayers(theme, spriteIcons)
@@ -85,6 +97,16 @@ map.addControl(new maplibregl.AttributionControl({ compact: true }))
 // 描画が落ち着いたか（idle）を外から待てないと意味がない。通常の閲覧では生えない。
 if (DEBUG) {
   ;(window as unknown as { __dmMap?: maplibregl.Map }).__dmMap = map
+  // 当たり判定の検証（scripts/probe-hit.mjs）から同じ判定を呼べるようにする。
+  // 判定を二重に書くと片方だけ直して食い違うため、実物をそのまま渡す
+  const hit = (f: maplibregl.MapGeoJSONFeature, p: maplibregl.Point): boolean =>
+    withinIcon(f, p)
+  hit.reach = (f: maplibregl.MapGeoJSONFeature, zoom: number): number => {
+    const code = String((f.properties ?? {}).Code ?? '')
+    return iconReachPx(zoom, code, spriteInk.get(code))
+  }
+  hit.items = (p: maplibregl.Point): PopupItem[] => popupItemsAt(p)
+  ;(window as unknown as { __dmHit?: typeof hit }).__dmHit = hit
 }
 
 // ---- 状態表示 ----
@@ -427,39 +449,94 @@ const queryLayerIds = (): string[] =>
 /** クリック地点そのものだと点を取りこぼすので、少し広げて拾う。 */
 const HIT_RADIUS_PX = 4
 
+/**
+ * 記号の当たり判定に足す遊び（px）。
+ *
+ * `HIT_RADIUS_PX` を流用してはいけない。あちらは「点を取りこぼさないために
+ * queryRenderedFeatures へ渡す箱」の話で、z19 では地上0.49mある。小さい記号の
+ * 当たり半径（`2235` で0.48m）と同じ桁なので、そのまま足すと隣の記号まで拾い直す。
+ * ここは指の太さぶんだけの遊びに留める。
+ */
+const ICON_HIT_SLOP_PX = 2
+
 const hitBox = (p: maplibregl.Point): [maplibregl.PointLike, maplibregl.PointLike] => [
   [p.x - HIT_RADIUS_PX, p.y - HIT_RADIUS_PX],
   [p.x + HIT_RADIUS_PX, p.y + HIT_RADIUS_PX],
 ]
 
+/**
+ * 記号アイコンの当たりを「見えている範囲」に絞る。
+ *
+ * MapLibre は記号について見た目よりずっと広く拾う（`layers.ts` の「クリックの当たり
+ * 判定」を参照。実測では6m先の記号まで返った）。渡した箱より広く返ってくるので、
+ * 描いた大きさから当たり半径を出して落とす。
+ *
+ * 対象は `ICON_HIT_LAYERS` だけ。代替図形の丸（`circle`）は MapLibre が半径で正しく
+ * 判定し、注記は長い文字列が代表点から離れるのが正しいため、どちらも触らない。
+ */
+function withinIcon(f: maplibregl.MapGeoJSONFeature, p: maplibregl.Point): boolean {
+  if (!ICON_HIT_LAYERS.includes(f.layer.id)) return true
+  const g = f.geometry
+  if (g.type !== 'Point') return true
+  const [lng, lat] = g.coordinates as [number, number]
+  const q = map.project([lng, lat])
+  const code = String((f.properties ?? {}).Code ?? '')
+  const reach = iconReachPx(map.getZoom(), code, spriteInk.get(code))
+  return Math.hypot(q.x - p.x, q.y - p.y) <= reach + ICON_HIT_SLOP_PX
+}
+
 // ---- ホバーカーソル（マウス環境のみ） ----
 if (window.matchMedia('(hover: hover)').matches) {
   map.on('mousemove', (ev) => {
     const ids = queryLayerIds()
-    const hit = ids.length > 0 && map.queryRenderedFeatures(hitBox(ev.point), { layers: ids }).length > 0
+    const hit =
+      ids.length > 0 &&
+      map
+        .queryRenderedFeatures(hitBox(ev.point), { layers: ids })
+        .some((f) => withinIcon(f, ev.point))
     map.getCanvas().style.cursor = hit ? 'pointer' : ''
   })
 }
 
 // ---- クリックポップアップ ----
-let popup: maplibregl.Popup | null = null
-map.on('click', (ev) => {
-  const ids = queryLayerIds()
-  const feats = ids.length ? map.queryRenderedFeatures(hitBox(ev.point), { layers: ids }) : []
-  if (!feats.length) return
 
-  // タイル境界をまたぐ地物は、タイルごとに1回ずつ返る。同じレイヤーで属性が
-  // 完全に一致するものは1件にまとめてこれを抑える。
+/**
+ * クリック地点でポップアップに並べる項目を作る。
+ *
+ * 検証（scripts/probe-hit.mjs）から同じものを呼べるように関数にしてある。
+ * 判定を二重に書くと片方だけ直して食い違う。
+ */
+function popupItemsAt(point: maplibregl.Point): PopupItem[] {
+  const ids = queryLayerIds()
+  const feats = ids.length
+    ? map.queryRenderedFeatures(hitBox(point), { layers: ids }).filter((f) => withinIcon(f, point))
+    : []
+
+  // タイル境界をまたぐ地物は、タイルごとに1回ずつ返る。属性が完全に一致するものは
+  // 1件にまとめてこれを抑える。
+  //
+  // **キーにレイヤーIDを入れない。** 1つの地物を2レイヤーで描いている場合
+  // （電柱は `road_direction_icon` のアイコンと `road_direction_stub` の向きの線）、
+  // レイヤーごとに数えると同じ属性が何行も並ぶ。ペアを持つ電柱では1本の柱が
+  // 3〜8行になっていた。種別（グループ名）はどちらのレイヤーでも同じなので、
+  // 先に入ったほうを採れば表示は変わらない。
   const seen = new Set<string>()
   const items: PopupItem[] = []
   for (const f of feats) {
     const props = (f.properties ?? {}) as Record<string, unknown>
-    const key = `${f.layer.id}|${JSON.stringify(props)}`
+    const key = JSON.stringify(props)
     if (seen.has(key)) continue
     seen.add(key)
     const entry = LAYERS.find((l) => l.spec.id === f.layer.id)
     items.push({ groupName: entry ? groupOf(entry.group).name : f.layer.id, props })
   }
+  return items
+}
+
+let popup: maplibregl.Popup | null = null
+map.on('click', (ev) => {
+  const items = popupItemsAt(ev.point)
+  if (!items.length) return
 
   if (popup) {
     const old = popup
