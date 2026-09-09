@@ -293,6 +293,83 @@ export async function loadSpriteIcons(): Promise<Map<string, string>> {
 /** ?debug の HUD 用。どの提供元を引いているかを出す。 */
 export const spriteProviders = (): string[] => PROVIDERS
 
+/** スプライト1タイルの中でインクが載っている範囲（タイル内の画素座標）。 */
+export interface InkBox {
+  x0: number
+  y0: number
+  x1: number
+  y1: number
+  /** タイルの幅・高さ（dm-sprite は 64x64）。中心を出すのに使う。 */
+  w: number
+  h: number
+}
+
+/**
+ * スプライトの各アイコンについて、インクが載っている範囲を測る。
+ *
+ * **クリックの当たり判定に使う。** MapLibre の `queryRenderedFeatures` は記号について
+ * 見た目よりずっと広く拾い、実測では代表点が6m離れた記号まで返ってきた（`icon-size`
+ * や余白から一意に説明できる大きさではない）。そこで「見えている範囲に当たったか」は
+ * こちらで判定する。dm-sprite のタイルは全コード 64x64 だが、実際にインクが載って
+ * いるのは 8〜28px 程度で、コードによって大きく違うため、索引の width/height では
+ * 代用できない。
+ *
+ * 閾値のアルファ>8 は measure-pdf.py（記号の大きさの実測）と同じ。
+ *
+ * 読めなかった場合は空を返す。呼び出し側はタイル全体を当たり判定に使うので、
+ * いまと同じ（広めに拾う）挙動に戻るだけで、地物が拾えなくなることはない。
+ */
+export async function loadSpriteInk(icons: Map<string, string>): Promise<Map<string, InkBox>> {
+  const out = new Map<string, InkBox>()
+  if (!icons.size) return out
+  try {
+    const [idxRes, imgRes] = await Promise.all([
+      fetch(`${DM_SPRITE_URL}.json`),
+      fetch(`${DM_SPRITE_URL}.png`),
+    ])
+    if (!idxRes.ok || !imgRes.ok) throw new Error(`HTTP ${idxRes.status}/${imgRes.status}`)
+    const index = (await idxRes.json()) as Record<
+      string,
+      { x: number; y: number; width: number; height: number }
+    >
+    // fetch したものを自分で描くのでキャンバスは汚染されない（crossOrigin の指定は不要）
+    const bmp = await createImageBitmap(await imgRes.blob())
+    const canvas = document.createElement('canvas')
+    canvas.width = bmp.width
+    canvas.height = bmp.height
+    const ctx = canvas.getContext('2d', { willReadFrequently: true })
+    if (!ctx) throw new Error('2d コンテキストを作れません')
+    ctx.drawImage(bmp, 0, 0)
+    const { data } = ctx.getImageData(0, 0, bmp.width, bmp.height)
+    for (const [code, name] of icons) {
+      const m = index[name]
+      if (!m) continue
+      let x0 = m.width
+      let y0 = m.height
+      let x1 = -1
+      let y1 = -1
+      for (let y = 0; y < m.height; y++) {
+        const row = (m.y + y) * bmp.width
+        for (let x = 0; x < m.width; x++) {
+          if (data[(row + m.x + x) * 4 + 3] <= 8) continue
+          if (x < x0) x0 = x
+          if (x > x1) x1 = x
+          if (y < y0) y0 = y
+          if (y > y1) y1 = y
+        }
+      }
+      if (x1 < 0) continue
+      out.set(code, { x0, y0, x1, y1, w: m.width, h: m.height })
+    }
+  } catch (e) {
+    console.warn(
+      '[sprite] アイコンのインク寸法を測れませんでした。クリックの当たり判定は広めになります',
+      e,
+    )
+  }
+  return out
+}
+
 /**
  * 注記に使うグリフの配信元。
  * 淡色・標準（地理院 最適化ベクトルタイル）のスタイルと同じものを、写真・白図でも使う。

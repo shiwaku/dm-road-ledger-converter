@@ -11,7 +11,7 @@
 // コードはアイコンで描き、無いコードだけ代替図形（丸）で位置を示す。
 // -----------------------------------------
 import type { LayerSpecification, SourceSpecification } from 'maplibre-gl'
-import { DM_SPRITE_ID } from './basemap'
+import { DM_SPRITE_ID, type InkBox } from './basemap'
 import { codeName } from './dmCodes'
 import type { Theme } from './theme'
 
@@ -357,6 +357,62 @@ const ICON_OFFSET: unknown[] = Object.keys(ICON_ANCHOR_PX).length
       ['literal', [0, 0]],
     ]
   : ['literal', [0, 0]]
+
+// ---- クリックの当たり判定 ----
+//
+// **MapLibre の `queryRenderedFeatures` は記号について見た目よりずっと広く拾う。**
+// 実測（`viewer/scripts/probe-hit.mjs`）では、信号灯の代表点を z19 でクリックすると
+// 代表点が 2.00m・3.93m 離れた記号まで返り、クリック位置を 40px（4.9m）ずらしても
+// 5.9m 先の記号が返った。当たり判定の箱は 9x9px（地上1.10m）しか渡していないので、
+// 記号の側が張り出している。`icon-size` や余白の値からは一意に説明できない大きさで、
+// 内部の作りに依存するため、**どこまで当たるかを MapLibre に任せない。**
+//
+// こちら側は「何をどこにどれだけの大きさで描いたか」を知っている。スプライトの
+// インク寸法（`loadSpriteInk`）とアンカ補正（`ICON_ANCHOR_PX`）から、代表点から
+// インクの端までの距離を出し、それを超える当たりは落とす。
+//
+// 大きさは地上サイズ固定なので、判定も自動で追随する（z19未満は頭打ち）。
+
+/** そのズームでの `icon-size`（倍率）。`ICON_SIZE` の補間をJSで解いたもの。 */
+const iconSizeAt = (zoom: number): number =>
+  ICON_SCALE * 2 ** (Math.min(Math.max(zoom, 19), TOP_ZOOM) - 19)
+
+/**
+ * 代表点から、そのアイコンのインクの一番遠い端までの距離（画面px）。
+ *
+ * アイコンは「タイルの中心＋`icon-offset`」が代表点に載るように描かれる。したがって
+ * タイル内の画素 p は、代表点から `(p − タイル中心 + アンカ補正) × icon-size` の位置に
+ * 出る。矩形の最大値は角で出るので、インクの外接矩形の4隅だけを見ればよい。
+ *
+ * インク寸法が読めなかったコードはタイル全体（64x64）の半径を使う。いまと同じ
+ * 広めの判定に戻るだけで、拾えなくなることはない。
+ */
+export function iconReachPx(zoom: number, code: string, ink?: InkBox): number {
+  const size = iconSizeAt(zoom)
+  const [ax, ay] = ICON_ANCHOR_PX[code] ?? [0, 0]
+  if (!ink) return Math.hypot(32, 32) * size
+  const cx = (ink.w - 1) / 2
+  const cy = (ink.h - 1) / 2
+  let reach = 0
+  for (const [x, y] of [
+    [ink.x0, ink.y0],
+    [ink.x1, ink.y0],
+    [ink.x0, ink.y1],
+    [ink.x1, ink.y1],
+  ]) {
+    reach = Math.max(reach, Math.hypot(x - cx + ax, y - cy + ay))
+  }
+  return reach * size
+}
+
+/**
+ * クリックの当たり判定を距離で絞るレイヤー。
+ *
+ * `type: 'circle'` の代替図形（`road_*_dot`）は MapLibre が半径で正しく判定するので
+ * 対象外。注記（`road_annotation`）も対象外で、長い文字列は代表点から離れた位置まで
+ * 伸びるのが正しいため（当たり判定は文字の並びに沿う）。
+ */
+export const ICON_HIT_LAYERS = ['road_symbol_icon', 'road_direction_icon', 'road_direction_stub']
 
 // ---- 電柱の向きを示す短い線（スタブ） ----
 //
