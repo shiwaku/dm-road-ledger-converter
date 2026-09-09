@@ -299,6 +299,65 @@ const ICON_SIZE: unknown[] = [
   ICON_SCALE * TOP_MUL,
 ]
 
+/**
+ * アイコンのアンカ位置の補正（スプライトの画素単位。右・下が正）。
+ *
+ * **DMの代表点は記号の中心ではない。** 柱の位置や、記号が立っている足元を指す。
+ * 図面もそのように描き、柱を点に置いて標識板や信号灯の箱を脇へ出す。ところが
+ * dm-sprite はインク全体をタイルの中央に置くため、そのまま `icon-image` で出すと
+ * **柱ではなく記号全体の中心が代表点に載る**。その差を `icon-offset` で戻す。
+ *
+ * 値は「タイル中央（64px タイルなので 31.5px）− スプライト内のアンカ位置」。
+ * 単位をスプライトの画素にしておくと、`icon-offset` は `icon-size` 倍されるため
+ * ズームや `ICON_SCALE` を変えても記号との関係が崩れない。`icon-rotate` と併用すると
+ * 回転後の向きで効くので、方向（E6）では「向きに沿って」ずれる（スタイル仕様）。
+ *
+ * 根拠は同梱PDF図面（`DM-_57-08.pdf`）の実測とスプライトのインクの位置。実測は
+ * 代表点から図面のインク中心までのずれの中位値で、沿い＝Angle方向／直交＝その左法線。
+ *
+ * | コード | スプライトのアンカ | 補正 | 実測のずれ | 検出 |
+ * |---|---|---|---|---|
+ * | `2246` 信号灯 | 左端の柱の点 (20.5, 31.5) | `[11, 0]` | 沿い +1.02m | 7/7 |
+ * | `2244` 道路標識 規制 | 柱の根元 (29.5, 40) | `[2, -8.5]` | 直交 +0.56m | 64/77 |
+ * | `2242` 道路標識 案内 | 柱の根元 (31.5, 39) | `[0, -7.5]` | 実測できず（下記） | 5/8 |
+ * | `6215` 墓地 | 台座 (31.5, 37.5) | `[0, -6]` | 直交 +0.72m | 9/9 |
+ *
+ * **補正は実測のずれより1〜2割小さい。** アイコン自体が図面より小さいためで
+ * （`2246` はスプライトの全長1.72m 対 図面2.07m）、アンカではなく大きさの問題なので
+ * Issue #13 に属する。ここは「スプライトの柱を代表点に載せる」までを担う。
+ *
+ * `2242` は図郭57-08では8件中3件が `2244` と同じ柱に立っており、実測が隣の板や
+ * `2246` の箱を拾って −1.39〜+0.91m と散る。意匠が `2244` と同じ構造（柱＋上部の板）
+ * なので、実測ではなくスプライトのインクの位置から入れている。
+ *
+ * 入れていないもの。`3401` 門（0.32m・206/306）と `4151`（0.26m・15/15）は意匠が
+ * 上下左右対称でアンカで説明できない。`4214`（0.49m・5/7）は実測はあるが、意匠の
+ * どこが足元か読み取れない。**実測値をそのまま画素に直して入れてはいけない。**
+ * それは意匠から導けない数字なので、dm-sprite が描き直したときに黙って狂う。
+ */
+const ICON_ANCHOR_PX: Record<string, [number, number]> = {
+  '2242': [0, -7.5],
+  '2244': [2, -8.5],
+  '2246': [11, 0],
+  '6215': [0, -6],
+}
+
+/**
+ * `icon-offset`。アンカ補正を持つコードだけずらす。
+ *
+ * **表が空のときは `match` を組まない。** 分岐が0本の `match`（既定値だけ）は不正な式で、
+ * MapLibre は `icon-offset` を弾いたうえでレイヤーを丸ごと落とす。表からコードを
+ * 全部外すと**アイコンが無言で消える**。型チェックは通るので気づけない。
+ */
+const ICON_OFFSET: unknown[] = Object.keys(ICON_ANCHOR_PX).length
+  ? [
+      'match',
+      ['to-string', ['get', 'Code']],
+      ...Object.entries(ICON_ANCHOR_PX).flatMap(([code, xy]) => [code, ['literal', xy]]),
+      ['literal', [0, 0]],
+    ]
+  : ['literal', [0, 0]]
+
 // ---- 電柱の向きを示す短い線（スタブ） ----
 //
 // 電柱系の方向要素（E6）は1要素に複数のペアが入り、豊中サンプルでは107要素／305件が
@@ -729,6 +788,7 @@ export function buildLayers(theme: Theme, spriteIcons: Map<string, string>): Lay
         layout: {
           'icon-image': ICON_IMAGE as never,
           'icon-size': ICON_SIZE as never,
+          'icon-offset': ICON_OFFSET as never,
           // 測量成果として決まった位置に置かれるものなので、衝突判定で間引かせず全部描く
           'icon-allow-overlap': true,
           'icon-ignore-placement': true,
@@ -826,6 +886,7 @@ export function buildLayers(theme: Theme, spriteIcons: Map<string, string>): Lay
         layout: {
           'icon-image': ICON_IMAGE as never,
           'icon-size': ICON_SIZE as never,
+          'icon-offset': ICON_OFFSET as never,
           'icon-rotate': ICON_ROTATE as never,
           'icon-rotation-alignment': 'map',
           'icon-allow-overlap': true,
