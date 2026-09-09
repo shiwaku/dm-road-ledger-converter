@@ -167,4 +167,3 @@ Copyright 2026 Yohei Shiwaku
 
 - 国土交通省「[公共測量標準図式](https://psgsv2.gsi.go.jp/koukyou/public/sagyoukitei/index.html)」
 - 豊中市「[豊中市道路台帳平面図DM500](https://www.city.toyonaka.osaka.jp/machi/doro/daityou/digitalmap/hajimeni.html)」
-- Geolonia「道路台帳図カスタムタイル仕様書（案）」（`geolonia/smartcity-smartmap-custom-tiles-spec`）— 道路台帳図の定義・縮尺・最大ズームレベルの考え方はこの仕様書に整合させています
