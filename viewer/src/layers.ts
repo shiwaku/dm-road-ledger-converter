@@ -256,11 +256,20 @@ const ICON_SCALE = 0.5
 // 156543.03392×cos(lat)/2^z/2）。したがって 1m ＝ 8.157px。
 //
 // 上下は自動で頭打ちになる。MapLibre は補間の範囲外を端の値で止めるため、
-// z19未満は z19 の値、z21超は z21 の値のまま。低ズームで潰れず、
+// z19未満は z19 の値、上端を超えるぶんは上端の値のまま。低ズームで潰れず、
 // 高ズームで無限に大きくならない。
+//
+// **上端は地図の `maxZoom` 以上にしておくこと。** 下回ると、そこから上は
+// 画面ピクセルが止まって地上サイズが1段ごとに半分になり、拡大するほど
+// 図面より小さくなる（この補間が防いでいるはずの症状に戻る）。
 
 /** z19 で地上1メートルに相当する画面ピクセル数。 */
 const PX_PER_M_Z19 = 8.157
+
+/** 地上サイズ固定の補間の上端。地図の `maxZoom`（main.ts）以上にする。 */
+const TOP_ZOOM = 22
+/** z19 から上端までの倍率。ズーム1段で2倍なので 2^(上端-19)。 */
+const TOP_MUL = 2 ** (TOP_ZOOM - 19)
 
 /**
  * 地上 `meters` メートルを保つサイズの式。
@@ -273,7 +282,7 @@ const groundPx = (meters: number, floorPx = 8): number =>
 
 const groundSize = (meters: number, floorPx = 8): unknown[] => {
   const px19 = groundPx(meters, floorPx)
-  return ['interpolate', ['exponential', 2], ['zoom'], 19, px19, 21, px19 * 4]
+  return ['interpolate', ['exponential', 2], ['zoom'], 19, px19, TOP_ZOOM, px19 * TOP_MUL]
 }
 
 /**
@@ -286,8 +295,8 @@ const ICON_SIZE: unknown[] = [
   ['zoom'],
   19,
   ICON_SCALE,
-  21,
-  ICON_SCALE * 4,
+  TOP_ZOOM,
+  ICON_SCALE * TOP_MUL,
 ]
 
 // ---- 電柱の向きを示す短い線（スタブ） ----
@@ -368,8 +377,8 @@ const STUB_SIZE: unknown[] = [
   ['zoom'],
   19,
   PX_PER_M_Z19 / STUB_DESIGN_PX_PER_M,
-  21,
-  (PX_PER_M_Z19 / STUB_DESIGN_PX_PER_M) * 4,
+  TOP_ZOOM,
+  (PX_PER_M_Z19 / STUB_DESIGN_PX_PER_M) * TOP_MUL,
 ]
 
 /** スタブを描くコードか。 */
@@ -417,8 +426,8 @@ const ANNOTATION_SIZE: unknown[] = [
   ['zoom'],
   19,
   annotationSize(1),
-  21,
-  annotationSize(4),
+  TOP_ZOOM,
+  annotationSize(TOP_MUL),
 ]
 
 // ---- 線の描き分け ----
@@ -506,8 +515,8 @@ const SOLID_WIDTH: unknown[] = [
   ['zoom'],
   19,
   solidWidth(1),
-  21,
-  solidWidth(4),
+  TOP_ZOOM,
+  solidWidth(TOP_MUL),
 ]
 
 /** 破線レイヤーの線幅（レイヤーごとに1種類なのでコード別の分岐は要らない）。 */
@@ -517,8 +526,8 @@ const dashWidth = (pt: number): unknown[] => [
   ['zoom'],
   19,
   widthPx19(pt),
-  21,
-  widthPx19(pt) * 4,
+  TOP_ZOOM,
+  widthPx19(pt) * TOP_MUL,
 ]
 
 /** 破線で描くコードを実線レイヤーから除くフィルタ。 */
