@@ -8,7 +8,7 @@
 
 - **デモ**: https://shiwaku.github.io/dm-road-ledger-converter/
 
-[dm-converter](https://github.com/shiwaku/dm-converter) の派生です。道路台帳図は**座標オフセットの単位がミリメートル**（基本図はセンチメートル）で含まれる地物も異なるため、リポジトリを分けています。**両者を入れ替えて使うと座標が10倍ずれます**（[dm-converter との違い](docs/dm-format.md#dm-converter-との違い)）。
+[dm-converter](https://github.com/shiwaku/dm-converter) の派生です。道路台帳図は**座標オフセットの単位がミリメートル**（基本図はセンチメートル）で含まれる地物も異なるため、リポジトリを分けています。単位はどちらのツールも図郭レコードの「座標値の単位」から読みますが、**欄が空のときの扱いが違い**、入れ替えて使うと座標が10倍ずれます（[dm-converter との違い](docs/dm-format.md#dm-converter-との違い)）。
 
 ## クイックスタート
 
@@ -26,11 +26,11 @@
 git clone https://github.com/shiwaku/dm-road-ledger-converter.git
 cd dm-road-ledger-converter
 npm install
-node src/index.js --epsg 6674 --input /path/to/DM_57-08/dm
+node src/index.js --input /path/to/DM_57-08/dm
 ls output/                   # 線・面・記号・方向・注記 の5ファイルが出る
 ```
 
-`--epsg` には入力データの平面直角座標系を指定します（大阪府なので第6系＝6674）。系の一覧は[出力仕様](docs/output-spec.md#座標系)にあります。**縮尺は指定しません**。Mレコードから自動で読み取り、`Scale` 属性として出力します。
+**座標系も縮尺も指定しません。** 座標系は同梱の `INDEX.idx` や図郭識別番号から平面直角座標系の系番号を読んで決めます（豊中は第6系＝6674。判定できないときは `--epsg` を求めて止まります。[出力仕様](docs/output-spec.md#座標系)）。Mレコードから自動で読み取り、`Scale` 属性として出力します。
 
 豊中市サンプルでの件数です。
 
@@ -55,7 +55,7 @@ node src/index.js
 # 入力フォルダを指定
 node src/index.js --input /path/to/dm_dir
 
-# 座標系を指定（大阪府＝第6系）
+# 座標系を指定（自動判定を上書き。大阪府＝第6系）
 node src/index.js --epsg 6674 --input /path/to/dm_dir
 
 # 並列数を指定。1 で逐次実行
@@ -69,7 +69,7 @@ node src/index.js --jobs 4 --input /path/to/dm_dir
 | オプション | 既定値 | 説明 |
 |---|---|---|
 | `--input` | `../DMデータ/` | 入力フォルダ（再帰検索） |
-| `--epsg` | `6674` | 入力データの座標参照系。JGD2011 第6系（京都・大阪ほか） |
+| `--epsg` | 自動判定 | 入力データの座標参照系。指定すると全ファイルに適用する（[判定の順序](docs/output-spec.md#座標系)） |
 | `--jobs` | CPUコア数-1 | 並列数。`1` で逐次実行 |
 
 ### 出力ファイル
@@ -91,7 +91,7 @@ node src/index.js --jobs 4 --input /path/to/dm_dir
 GeoJSONだけ作り直してGeoParquetやPMTilesが古いまま残ると、配信データと変換結果が食い違います。`scripts/build.sh` で最後までまとめて焼き直せます。
 
 ```bash
-EPSG=6674 scripts/build.sh /path/to/DM_57-08/dm
+scripts/build.sh /path/to/DM_57-08/dm
 SKIP_CONVERT=1 SKIP_PARQUET=1 scripts/build.sh   # タイルだけ焼き直す
 ```
 
@@ -149,8 +149,8 @@ dm-road-ledger-converter/
 
   > 測量法に基づく豊中市長承認（使用）R8 豊基管第304号
 
-- 対応しているのは E1（面）・E2（線）・E5（記号）・E6（方向）・E7（注記）です。E3（円）・E4（円弧）・E8（属性）は出力せず、含まれていた場合は件数を警告します。
-- **座標オフセットの単位はミリメートル**です。地図情報レベル2,500・10,000のDMは [dm-converter](https://github.com/shiwaku/dm-converter) を使ってください。
+- 対応しているのは E1（面）・E2（線）・E3（円）・E4（円弧）・E5（記号）・E6（方向）・E7（注記）です。円・円弧は3点から折れ線に近似します。E8（属性）は出力せず、含まれていた場合は件数を警告します。
+- **座標オフセットの単位は図郭レコードから読み、欄が空ならミリメートルとみなします**。地図情報レベル2,500・10,000のDMは [dm-converter](https://github.com/shiwaku/dm-converter) を使ってください。
 - 出力される属性はすべて文字列型です（`Angle` も `"86"` のような文字列）。
 
 詳細は[利用上の注意](docs/legal.md)を参照してください。

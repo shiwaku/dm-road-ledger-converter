@@ -1,0 +1,13 @@
+{
+  "repo": "https://github.com/shiwaku/dm-converter.git",
+  "branch": "main",
+  "syncedCommit": "8825f7a7dfb99e84580c3ae78032ae0669a1e770",
+  "syncedAt": "2026-10-05",
+  "watch": ["src/", "viewer/src/", "viewer/public/", "viewer/index.html", "scripts/"],
+  "copies": [
+    { "path": "src/arcs.js" },
+    { "path": "src/rings.js" },
+    { "path": "src/epsgDefs.js" },
+    { "path": "viewer/src/dmCodes.ts", "from": "^export ", "note": "先頭のコメントはこちら向けに書き換えてあるので比べない" }
+  ]
+}

@@ -56,12 +56,12 @@ function mergeParts(outFile, parts) {
 
 /**
  * @param {string[]} files    .dm ファイルのパス（順序が出力順になる）
- * @param {number}   epsg     入力座標系
+ * @param {object}   epsgByFile  { .dm のパス: 入力 EPSG }
  * @param {string}   outDir   最終出力先
  * @param {number}   jobs     ワーカー数
  * @returns {import('./convert').Skipped} 読み飛ばしたレコードの集計
  */
-async function convertParallel(files, epsg, outDir, jobs) {
+async function convertParallel(files, epsgByFile, outDir, jobs) {
   const groups = chunk(files, Math.min(jobs, files.length));
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dm-road-ledger-converter-'));
 
@@ -73,7 +73,7 @@ async function convertParallel(files, epsg, outDir, jobs) {
         (group, index) =>
           new Promise((resolve, reject) => {
             const w = new Worker(path.join(__dirname, 'worker.js'), {
-              workerData: { files: group, epsg, tmpDir, index },
+              workerData: { files: group, epsgByFile, tmpDir, index },
             });
             let skipped = emptySkipped();
             w.on('message', (msg) => {
