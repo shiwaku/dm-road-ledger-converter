@@ -1,0 +1,2 @@
+# シェルスクリプトは WSL で実行するので、Windows の autocrlf で CRLF にしない
+*.sh text eol=lf
