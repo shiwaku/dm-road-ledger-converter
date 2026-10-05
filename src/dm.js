@@ -4,11 +4,30 @@
 // -----------------------------------------
 const fs = require('fs');
 const iconv = require('iconv-lite');
+const { circleRing, arcLine } = require('./arcs');
 
 const DATATYPE_MAP = {
   'E1': '面', 'E2': '線', 'E3': '円', 'E4': '円弧',
   'E5': '点', 'E6': '方向', 'E7': '注記', 'E8': '属性'
 };
+
+// 図郭レコード(b)の「座標値の単位」（45〜47バイト目）→ メートルへの除数。
+// 1: mm、10: cm、999: m。豊中市サンプルは 1（mm）。
+// 空欄や想定外の値は道路台帳（地図情報レベル500）で普通の mm とみなして警告する。
+// dm-converter（都市計画基本図）は同じ場面で cm とみなす。既定だけが違う。
+const UNIT_DIVISORS = { 1: 1000, 10: 100, 999: 1 };
+const warnedUnits = new Set();
+
+function unitDivisor(raw, file) {
+  const code = parseInt(raw);
+  if (UNIT_DIVISORS[code] !== undefined) return UNIT_DIVISORS[code];
+  const key = `${file}:${raw}`;
+  if (!warnedUnits.has(key)) {
+    warnedUnits.add(key);
+    console.warn(`座標値の単位が不明です（"${raw.trim()}"）。mm として扱います: ${file}`);
+  }
+  return 1000;
+}
 
 class DM {
   constructor(inDMFile) {
@@ -19,7 +38,7 @@ class DM {
 
   /**
    * 変換対象外として読み飛ばしたEレコードの件数。レコード種別ごとに数える。
-   * 円（E3）・円弧（E4）・属性（E8）が該当する。
+   * 属性（E8）と、3点が一直線上にあって形を作れない円（E3）が該当する。
    *
    * レコード送りは recordcnt+1 で正しく進むためファイルの解析は壊れないが、
    * 該当する地物は出力に現れない。黙って消えると「変換したのに図面と違う」の
@@ -101,6 +120,7 @@ class DM {
     let unitcode = '';
     let ldx = 0, ldy = 0;
     let scale = 0;
+    let unitDiv = 1000;   // 座標値の単位（既定は mm）
 
     while (recno < lines.length) {
       const record = lines[recno];
@@ -118,6 +138,7 @@ class DM {
         if (!recB) break;   // 途中で終端しているファイル
         ldx = parseFloat(decode(recB, 0, 7));
         ldy = parseFloat(decode(recB, 7, 14));
+        unitDiv = unitDivisor(decode(recB, 44, 47), this._DMFile);
         // 図郭レコード(d)までシーク
         recno += 2;
         let cnt = 0;
@@ -134,6 +155,8 @@ class DM {
         const elementno = parseInt(decode(record, 12, 16));
         const recordcnt = parseInt(decode(record, 31, 35));
         const datakind = decode(record, 20, 21);
+        // 図形区分。建物（3001〜3004）では 31 が中庭線（面の内側の輪）を表す。
+        const zukei = decode(record, 18, 20).trim();
         const datacnt = parseInt(decode(record, 27, 31));
         // 標高値フィールド（50〜56桁）。単位はミリメートル。
         // 等高線・標高点では標高が入るが、基準点系では点番号が入る（DM 3013400 に対し
@@ -163,9 +186,9 @@ class DM {
               if (!rec) { truncated = true; break; }
             }
             const s = (pointcnt % perRecord) * stride;
-            // 座標オフセット（ミリメートルからメートルに変換）
-            const xVal = parseFloat(decode(rec, s, s + 7)) / 1000;
-            const yVal = parseFloat(decode(rec, s + 7, s + 14)) / 1000;
+            // 座標オフセット（座標値の単位からメートルに変換）
+            const xVal = parseFloat(decode(rec, s, s + 7)) / unitDiv;
+            const yVal = parseFloat(decode(rec, s + 7, s + 14)) / unitDiv;
             xy.push([ldy + yVal, ldx + xVal]);
             pointcnt++;
           }
@@ -179,6 +202,7 @@ class DM {
             FIGTYPE: curRectype,
             LAYER: layercode,
             ELNO: elno,
+            ZUKEI: zukei,
             XYList: xy,
             ELEV: elev,
             RECORD_TYPE: curRectype,
@@ -189,11 +213,50 @@ class DM {
           dictSeqno++;
           recno++;
 
+        } else if (curRectype === 'E3' || curRectype === 'E4') {
+          // 円（E3）は円周上の3点、円弧（E4）は始点・中間点・終点の3点。
+          // 3点を通る円を求めて折れ線に近似し、円は面、円弧は線として出力する（arcs.js）。
+          // 読み出しは E6 と同じく、ヘッダ位置からの相対で求めて recno は動かさない。
+          const stride = (datakind === '3' || datakind === '6') ? 21 : 14;
+          const perRecord = Math.floor(84 / stride);
+          const pts = [];
+          let truncated = false;
+          for (let i = 0; i < Math.min(datacnt, 3); i++) {
+            const rec = lines[recno + 1 + Math.floor(i / perRecord)];
+            if (!rec) { truncated = true; break; }
+            const s = (i % perRecord) * stride;
+            // 座標オフセット（座標値の単位からメートルに変換）
+            const xVal = parseFloat(decode(rec, s, s + 7)) / unitDiv;
+            const yVal = parseFloat(decode(rec, s + 7, s + 14)) / unitDiv;
+            pts.push([ldy + yVal, ldx + xVal]);
+          }
+          if (truncated) break;
+          const xy = pts.length < 3 ? null
+            : curRectype === 'E3' ? circleRing(...pts) : arcLine(...pts);
+          if (xy === null) {
+            // 円弧は一直線でも3点の折れ線になるので、ここに来るのは円か点不足だけ
+            this._skipped[curRectype] = (this._skipped[curRectype] || 0) + 1;
+          } else {
+            this._elementDict[dictSeqno] = {
+              FIGTYPE: curRectype,
+              LAYER: layercode,
+              ELNO: elno,
+              XYList: xy,
+              ELEV: elev,
+              RECORD_TYPE: curRectype,
+              DATA_KIND: datakind,
+              DATA_TYPE: datatype,
+              SCALE: scale
+            };
+            dictSeqno++;
+          }
+          recno += recordcnt + 1;
+
         } else if (curRectype === 'E5') {
           // 点（E5）
-          // 代表点座標（ミリメートルからメートルに変換）
-          const px = parseFloat(decode(record, 35, 42)) / 1000;
-          const py = parseFloat(decode(record, 42, 49)) / 1000;
+          // 代表点座標（座標値の単位からメートルに変換）
+          const px = parseFloat(decode(record, 35, 42)) / unitDiv;
+          const py = parseFloat(decode(record, 42, 49)) / unitDiv;
           this._elementDict[dictSeqno] = {
             FIGTYPE: curRectype,
             LAYER: layercode,
@@ -225,10 +288,10 @@ class DM {
             const rec = lines[hdr + 1 + Math.floor(p / perRecord)];
             if (!rec) break;
             const s = (p % perRecord) * stride;
-            // 座標オフセット（ミリメートルからメートルに変換）
+            // 座標オフセット（座標値の単位からメートルに変換）
             pts.push([
-              parseFloat(decode(rec, s, s + 7)) / 1000,
-              parseFloat(decode(rec, s + 7, s + 14)) / 1000
+              parseFloat(decode(rec, s, s + 7)) / unitDiv,
+              parseFloat(decode(rec, s + 7, s + 14)) / unitDiv
             ]);
           }
           for (let k = 0; k + 1 < pts.length; k += 2) {
@@ -256,14 +319,27 @@ class DM {
 
         } else if (curRectype === 'E7') {
           // 注記（E7）
-          // 代表点座標（ミリメートルからメートルに変換）
-          const px = parseFloat(decode(record, 35, 42)) / 1000;
-          const py = parseFloat(decode(record, 42, 49)) / 1000;
+          // 代表点座標（座標値の単位からメートルに変換）
+          const px = parseFloat(decode(record, 35, 42)) / unitDiv;
+          const py = parseFloat(decode(record, 42, 49)) / unitDiv;
           const rec2 = lines[recno + 1];
           if (!rec2) break;
           const vnflag = decode(rec2, 0, 1);
           const angle = parseInt(decode(rec2, 1, 8));
-          const text = this._decodeText(rec2, 20, 84);
+          // 注記データは後続レコードの21〜84バイト目。32文字を超える注記は
+          // 複数レコードにまたがるので、レコード数ぶんを連結する。全角文字が
+          // レコード境界で割れても崩れないよう、バイト列のまま連結してから復号する。
+          // 改行は落とし、最終レコードの余白は _decodeText が除く。
+          const parts = [];
+          for (let i = 1; i <= Math.max(recordcnt, 1); i++) {
+            const r = lines[recno + i];
+            if (!r) break;
+            let end = Math.min(r.length, 84);
+            while (end > 20 && (r[end - 1] === 0x0a || r[end - 1] === 0x0d)) end--;
+            if (end > 20) parts.push(r.slice(20, end));
+          }
+          const body = Buffer.concat(parts);
+          const text = this._decodeText(body, 0, body.length);
           this._elementDict[dictSeqno] = {
             FIGTYPE: curRectype,
             LAYER: layercode,
@@ -281,7 +357,7 @@ class DM {
           recno += recordcnt + 1;
 
         } else {
-          // 円（E3）・円弧（E4）・属性（E8）。変換対象外だが件数だけ数える
+          // 属性（E8）など。変換対象外だが件数だけ数える
           this._skipped[curRectype] = (this._skipped[curRectype] || 0) + 1;
           recno += recordcnt + 1;
         }

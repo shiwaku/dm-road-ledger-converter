@@ -3,7 +3,7 @@
 // 使用方法:
 //   node src/index.js                                 # ../DMデータ/ を再帰検索して output/ へ出力
 //   node src/index.js --input /path/to/dir            # 入力フォルダを直接指定
-//   node src/index.js --epsg 6677                     # 座標系を指定（デフォルト: 6674 第6系）
+//   node src/index.js --epsg 6677                     # 座標系を指定（既定: ファイルから自動判定）
 //   node src/index.js --jobs 4                        # 並列数を指定（既定: CPUコア数-1）
 //   node src/index.js --jobs 1                        # 逐次実行
 // 縮尺はDMファイルのMレコードから自動取得し、Scaleプロパティとして出力する
@@ -14,6 +14,7 @@ const DMFiles = require('./dmfiles');
 const GeoJSONWriter = require('./geojsonWriter');
 const { KINDS, convertFiles, reportSkipped } = require('./convert');
 const { convertParallel, defaultJobs } = require('./parallel');
+const { resolveEpsg } = require('./crs');
 
 // output/ はリポジトリルート直下（src/ の1つ上）
 const ROOT = path.join(__dirname, '..');
@@ -21,7 +22,7 @@ const ROOT = path.join(__dirname, '..');
 function parseArgs() {
   const args = process.argv.slice(2);
   let input = null;
-  let epsg  = 6674;   // デフォルト: JGD2011 / 日本平面直角座標系 第6系（豊中サンプルに合わせる）
+  let epsg  = null;   // 既定: .dmi / .idx / I レコード / 図郭識別番号から自動判定（crs.js）
   let jobs  = defaultJobs();
 
   for (let i = 0; i < args.length; i++) {
@@ -36,7 +37,7 @@ function parseArgs() {
     }
   }
 
-  if (isNaN(epsg) || epsg <= 0) {
+  if (epsg !== null && (isNaN(epsg) || epsg <= 0)) {
     console.error('--epsg に正の整数を指定してください');
     process.exit(1);
   }
@@ -60,14 +61,16 @@ function parseArgs() {
 }
 
 /** 逐次実行。ファイルが1つだけの場合や --jobs 1 のときに使う。 */
-function runSequential(files, epsg, outDir) {
+function runSequential(files, epsgByFile, outDir) {
+  // 入力座標系はファイルごとに切り替える。ここでは仮に先頭ファイルの系で作る
+  const initial = files.length > 0 ? epsgByFile[files[0]] : 6674;
   const writers = {};
   for (const kind of KINDS) {
-    writers[kind] = new GeoJSONWriter(path.join(outDir, `道路台帳図_${kind}.geojson`), epsg);
+    writers[kind] = new GeoJSONWriter(path.join(outDir, `道路台帳図_${kind}.geojson`), initial);
   }
   let n = 0;
   try {
-    return convertFiles(files, writers, (f) => console.log(`[${++n}/${files.length}] ${f}`));
+    return convertFiles(files, writers, (f) => console.log(`[${++n}/${files.length}] ${f}`), epsgByFile);
   } finally {
     for (const kind of KINDS) writers[kind].close();
   }
@@ -81,14 +84,26 @@ async function main() {
 
   const files = [...new DMFiles(dmDir)];
 
+  // 入力座標系をファイルごとに決める。判定できないファイルがあれば、黙って
+  // 誤った系で変換するより、--epsg の指定を求めて止める。
+  const { epsgByFile, undetected, summary } = resolveEpsg(files, epsg);
+  if (undetected.length > 0) {
+    console.error(`座標系（平面直角座標系の系番号）を判定できないファイルが ${undetected.length} 件あります:`);
+    for (const f of undetected.slice(0, 5)) console.error(`  ${f}`);
+    if (undetected.length > 5) console.error(`  ほか ${undetected.length - 5} 件`);
+    console.error('--epsg で入力の座標系を指定してください（例: --epsg 6674）。');
+    process.exit(1);
+  }
+  const epsgMap = Object.fromEntries(epsgByFile);
+
   // ファイルが1つも無い場合も、空の GeoJSON を出して正常終了する。
   const workers = Math.min(jobs, files.length);
   let skipped;
   if (workers > 1) {
     console.log(`並列変換: ${workers} ワーカー / ${files.length} ファイル`);
-    skipped = await convertParallel(files, epsg, outDir, workers);
+    skipped = await convertParallel(files, epsgMap, outDir, workers);
   } else {
-    skipped = runSequential(files, epsg, outDir);
+    skipped = runSequential(files, epsgMap, outDir);
   }
 
   console.log(`\n処理ファイル数: ${files.length}`);
@@ -97,10 +112,10 @@ async function main() {
     console.log(path.join(outDir, `道路台帳図_${kind}.geojson`));
   }
   console.log(`DM dir: ${dmDir}`);
-  console.log(`EPSG: ${epsg}`);
+  for (const line of summary) console.log(`入力座標系: ${line}`);
   console.log('縮尺はScaleプロパティに各フィーチャの値を格納');
 
-  // 円（E3）・円弧（E4）・属性（E8）は出力されない。黙って消えると
+  // 属性（E8）と形を作れない円（E3）は出力されない。黙って消えると
   // 「変換したのに図面と違う」の原因に気づけないため、最後に件数を出す
   reportSkipped(skipped);
 }

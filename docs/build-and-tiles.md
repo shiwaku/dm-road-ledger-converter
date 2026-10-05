@@ -16,7 +16,7 @@ GeoJSONだけ作り直してGeoParquetやPMTilesが古いまま残ると、配�
 scripts/build.sh
 
 # 入力フォルダを指定
-EPSG=6674 scripts/build.sh /path/to/DM_57-08/dm
+scripts/build.sh /path/to/DM_57-08/dm
 
 # タイルだけ焼き直す
 SKIP_CONVERT=1 SKIP_PARQUET=1 scripts/build.sh
@@ -28,7 +28,7 @@ DM→GeoJSON の直後に[拡張コードの点検](extended-codes.md)（`npm ru
 
 | 変数 | 効果 |
 |---|---|
-| `EPSG=6674` | 入力データの座標参照系を指定 |
+| `EPSG=6674` | 入力データの座標参照系を指定（既定はファイルから自動判定） |
 | `JOBS=4` | 並列数を指定 |
 | `MAXZOOM=17` | タイルの最大ズーム（既定18） |
 | `MINZOOM=14` | タイルの最小ズーム（既定15） |
