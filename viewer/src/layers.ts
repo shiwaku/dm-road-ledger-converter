@@ -177,16 +177,15 @@ const TEXT_FONT = ['NotoSansJP-Regular']
 const ICON_ROTATE = ['*', -1, ['coalesce', ['to-number', ['get', 'Angle']], 0]]
 
 /**
- * 注記（E7）の回転角。dm-converter の viewer と同じ式。
+ * 横書きの注記（E7）の回転角。dm-converter の viewer と同じ式。
  *
  * 角度の読み替えは方向と同じで符号反転。ただし ±90 度のときだけ 0 に倒す。
  * 豊中市サンプル（図郭57-08）では ±90 度の注記29件すべてが縦横フラグ=1（縦書き）で、
  * 角度 ±90 は「文字列を寝かせる」指示ではなく縦書きの表現だった。符号反転してそのまま
  * 回すと、縦書きのはずの注記が横倒しの文字列として出る。
  *
- * MapLibre で本来の縦書き（文字を縦に積む）を出すには text-writing-mode が必要だが、
- * データ駆動にできず、そもそも縦横フラグがタイルに載っていない（build.sh の TILE_ATTRS は
- * Code / Text / Angle のみ）。そのため横書きとして描いている。
+ * 縦書きはいまは縦横フラグで別レイヤーに分けている（VERTICAL）ので、この倒し方が
+ * 効くのは Vnflag を載せていない古いタイルだけ。そのときの描き方を変えないために残す。
  */
 const TEXT_ROTATE = [
   'let',
@@ -199,6 +198,16 @@ const TEXT_ROTATE = [
     ['*', -1, ['var', 'a']],
   ],
 ]
+
+/**
+ * 縦書きの注記（縦横フラグ=1）。text-writing-mode はデータ駆動にできないので、
+ * 注記はこの条件でレイヤーを2つに分ける。
+ *
+ * 判定は角度ではなく縦横フラグで行う。豊中サンプルの縦書き33件のうち4件は角度が
+ * −89・−92 度で、角度で見ると「±90 → 0」から漏れて1〜2度傾いた横倒しになっていた。
+ * PDF図面ではこの4件も文字の向きが他の縦書きと同じで傾いていないので、縦書きは回さない。
+ */
+const VERTICAL = ['==', ['to-string', ['get', 'Vnflag']], '1']
 
 // ---- 標高値のラベル ----
 //
@@ -510,10 +519,16 @@ const FIRST_PAIR_ONLY: unknown[] = [
   ['==', ['coalesce', ['to-number', ['get', 'Seq']], 1], 1],
 ]
 
-// ---- 注記の字高 ----
+// ---- 注記の字高と字間 ----
 //
-// 分類コード別の字高はPDF図面の実測値（スパンのフォントサイズ ÷ 5.6687 pt/m）。
+// 字高はDMの字大（変換結果の TextSize。地上m）を使う。豊中サンプルでは全コードで
+// PDF図面の実測（スパンのフォントサイズ ÷ 5.6687 pt/m）と一致した。
+// 下の分類コード別の表は TextSize を載せていない古いタイル向けの控えで、値は実測値。
 // 既定は建物名・ビル名などの 1.50m。
+//
+// 字間はDMの字隔（TextSpacing。地上m）。text-letter-spacing は em 単位なので字高で割る。
+// 図面は縦書きで字隔ぶん字を離して組んでおり、これが無いと縦書きの列が図面の半分ほどの
+// 長さになる（市役所第一庁舎は字高1.5m・字隔1.5mで、7字の列が19.5m）。
 //
 // **ズーム補間の中に `match` を入れること。** 逆にして `match` の各分岐に
 // ズーム補間を置くと「Only one zoom-based "step" or "interpolate" subexpression
@@ -528,11 +543,27 @@ const ANNOTATION_M: [string, number][] = [
   ['8144', 0.5],
 ]
 
+const TEXT_SIZE_M = ['to-number', ['get', 'TextSize'], 0]
+
 const annotationSize = (mul: number): unknown[] => [
-  'match',
-  ['to-string', ['get', 'Code']],
-  ...ANNOTATION_M.flatMap(([code, m]) => [code, groundPx(m) * mul]),
-  groundPx(1.5) * mul,   // 8121 国道番号・8135 建物名・8136 ビル名など
+  'case',
+  ['>', TEXT_SIZE_M, 0],
+  // groundPx と同じく z19 で8px を下限にする（8144 の0.5mは4px で読めない）
+  ['*', ['max', ['*', TEXT_SIZE_M, PX_PER_M_Z19], 8], mul],
+  [
+    'match',
+    ['to-string', ['get', 'Code']],
+    ...ANNOTATION_M.flatMap(([code, m]) => [code, groundPx(m) * mul]),
+    groundPx(1.5) * mul,   // 8121 国道番号・8135 建物名・8136 ビル名など
+  ],
+]
+
+/** 字間（em）。字隔 ÷ 字高。どちらかが無ければ 0（MapLibre の既定と同じ）。 */
+const ANNOTATION_SPACING: unknown[] = [
+  'case',
+  ['>', TEXT_SIZE_M, 0],
+  ['/', ['to-number', ['get', 'TextSpacing'], 0], TEXT_SIZE_M],
+  0,
 ]
 
 const ANNOTATION_SIZE: unknown[] = [
@@ -989,6 +1020,7 @@ export function buildLayers(theme: Theme, spriteIcons: Map<string, string>): Lay
         source: SOURCE_ID,
         'source-layer': 'road_annotation',
         minzoom: DETAIL_MINZOOM,
+        filter: ['!', VERTICAL] as never,
         layout: {
           'text-field': ['coalesce', ['get', 'Text'], ''] as never,
           'text-font': TEXT_FONT,
@@ -999,9 +1031,44 @@ export function buildLayers(theme: Theme, spriteIcons: Map<string, string>): Lay
           // 回転はアンカー基準なので、角度付きの注記もそのまま合う。
           // 複数行（￥を改行にしたもの）は text-justify の既定が center で行が
           // 中央揃えになるため、左揃えも明示する。
+          'text-letter-spacing': ANNOTATION_SPACING as never,
           'text-anchor': 'left',
           'text-justify': 'left',
           'text-rotate': TEXT_ROTATE as never,
+          'text-rotation-alignment': 'map',
+          'text-allow-overlap': true,
+          'text-ignore-placement': true,
+          'text-max-width': 20,
+        },
+        paint: {
+          'text-color': ink.text,
+          'text-halo-color': ink.halo,
+          'text-halo-width': 1.4,
+          'text-opacity': 1,
+        },
+      },
+    },
+    {
+      group: 'annotation',
+      opacity: { 'text-opacity': 1 },
+      spec: {
+        id: 'road_annotation_vertical',
+        type: 'symbol',
+        source: SOURCE_ID,
+        'source-layer': 'road_annotation',
+        minzoom: DETAIL_MINZOOM,
+        filter: VERTICAL as never,
+        layout: {
+          'text-field': ['coalesce', ['get', 'Text'], ''] as never,
+          'text-font': TEXT_FONT,
+          'text-size': ANNOTATION_SIZE as never,
+          'text-letter-spacing': ANNOTATION_SPACING as never,
+          'text-writing-mode': ['vertical'],
+          // 縦書きの代表点は列の左上。PDF図面の1行の縦書きで、代表点は列の左端から
+          // +0.08m、字の上端から −0.29m（字高1.5mの建物名）。横書きと同じく書き出し位置。
+          // **縦書きでは text-anchor が90度回って効く**（top-left を指定すると列が代表点の
+          // 左に、top-right だと上に出た）。見た目の左上に置くには bottom-left を指定する
+          'text-anchor': 'bottom-left',
           'text-rotation-alignment': 'map',
           'text-allow-overlap': true,
           'text-ignore-placement': true,

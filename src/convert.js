@@ -68,6 +68,21 @@ function textOf(dat) {
   return (dat.TEXT || '').replace(/￥/g, '\n');
 }
 
+/**
+ * 注記の字大・字隔を地上のメートルにする。DMの値は図上0.1mm単位なので、
+ * 縮尺の分母を掛けて10000で割る（1:500 で字大 `30` → 1.5m、字隔 `7` → 0.35m）。
+ *
+ * 豊中サンプルでは字大がビューワの字高の表（PDF図面の実測）と全コードで一致し、
+ * 字隔も縦書きの列の長さ（字高×字数＋字隔×(字数−1)）と合う。
+ * 値が無いときや縮尺が取れないときは空にする。字隔 `0`（字間なし）は出す。
+ */
+function textLenOf(raw, scale) {
+  if (raw === undefined || raw === '' || !scale) return '';
+  const v = Number(raw);
+  if (!Number.isFinite(v)) return '';
+  return v * scale / 10000;
+}
+
 /** 全種別に共通する属性。 */
 function setCommon(w, dat) {
   w.setPropertie('Code',       dat.LAYER       || '');
@@ -199,6 +214,8 @@ function convertFiles(files, writers, onFile, epsgByFile) {
         w.setPropertie('Text',   textOf(dat));
         w.setPropertie('Vnflag', dat.VNFLAG || '');
         w.setPropertie('Angle',  dat.ANGLE !== undefined ? dat.ANGLE : '');
+        w.setPropertie('TextSize',    textLenOf(dat.TEXT_SIZE, dat.SCALE));
+        w.setPropertie('TextSpacing', textLenOf(dat.TEXT_SPACING, dat.SCALE));
         w.setPropertie('RecordType', dat.RECORD_TYPE || '');
         w.setPropertie('DataType',   dat.DATA_TYPE   || '');
         w.setPropertie('DataKind',   dat.DATA_KIND   || '');
