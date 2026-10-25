@@ -1,8 +1,8 @@
 {
   "repo": "https://github.com/shiwaku/dm-converter.git",
   "branch": "main",
-  "syncedCommit": "8825f7a7dfb99e84580c3ae78032ae0669a1e770",
-  "syncedAt": "2026-10-05",
+  "syncedCommit": "d68d6ae377a35a828f0c70511cabc016da36cf46",
+  "syncedAt": "2026-10-25",
   "watch": ["src/", "viewer/src/", "viewer/public/", "viewer/index.html", "scripts/"],
   "copies": [
     { "path": "src/arcs.js" },
