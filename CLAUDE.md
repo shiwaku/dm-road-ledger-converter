@@ -189,7 +189,7 @@ PMTiles のメタデータ（`build.sh` の `ATTRIBUTION`）、README。**既定
    node src/index.js --jobs 4 --input <dir> && cp output/*.geojson /tmp/par/
    for f in /tmp/seq/*.geojson; do cmp "$f" "/tmp/par/$(basename "$f")"; done
    ```
-2. **豊中サンプルの件数が変わっていないか** — 線2,647／面400／記号1,210／方向1,473／注記95
+2. **豊中サンプルの件数が変わっていないか** — 線2,648／面399／記号1,210／方向1,473／注記95
 3. **拡張コードの点検** — `npm run check:extended`（`scripts/build.sh` は変換直後に自動で走る）。
    豊中サンプルは28コード・860件（14.8%）が標準図式に無い。**混ざること自体は普通のことで
    異常ではない。** 終了コード1になるのは「拡張DMのアイコンがあるのに提供元を指定していない」
