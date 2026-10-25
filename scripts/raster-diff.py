@@ -577,7 +577,7 @@ def breakdown(reuse: bool) -> None:
     v_labels = {
         '等高線の標高': per.get('road_line_elev', 0),
         '標高点の標高': per.get('road_symbol_elev', 0) + per.get('road_direction_elev', 0),
-        '注記': per.get('road_annotation', 0),
+        '注記': per.get('road_annotation', 0) + per.get('road_annotation_vertical', 0),
     }
     p_spans = pdf_text_spans(page, aff)
     p_labels = {

@@ -327,6 +327,9 @@ class DM {
           if (!rec2) break;
           const vnflag = decode(rec2, 0, 1);
           const angle = parseInt(decode(rec2, 1, 8));
+          // 字大（9〜13バイト目）と字隔（14〜18バイト目）。単位は図上0.1mm
+          const textSize = decode(rec2, 8, 13).trim();
+          const textSpacing = decode(rec2, 13, 18).trim();
           // 注記データは後続レコードの21〜84バイト目。32文字を超える注記は
           // 複数レコードにまたがるので、レコード数ぶんを連結する。全角文字が
           // レコード境界で割れても崩れないよう、バイト列のまま連結してから復号する。
@@ -348,6 +351,8 @@ class DM {
             XYList: [ldy + py, ldx + px],
             ANGLE: angle,
             VNFLAG: vnflag,
+            TEXT_SIZE: textSize,
+            TEXT_SPACING: textSpacing,
             TEXT: text,
             RECORD_TYPE: curRectype,
             DATA_KIND: datakind,

@@ -66,7 +66,7 @@ DM→GeoJSON の直後に[拡張コードの点検](extended-codes.md)（`npm ru
 
 ## タイルに残す属性
 
-タイルに残す属性は `Code`・`Text`・`Angle`・`Elev`・`Seq` の5つだけです（`build.sh` の `TILE_ATTRS`）。`Elno` はフィーチャごとにユニークな文字列でタイル内の文字列辞書を最も膨らませるため落としています。`RecordType`・`DataType`・`DataKind`・`Scale`・`Vnflag` はレイヤー内でほぼ単一値か表示専用のため同様です。
+タイルに残す属性は `Code`・`Text`・`Angle`・`Elev`・`Seq`・`Vnflag`・`TextSize`・`TextSpacing` の8つだけです（`build.sh` の `TILE_ATTRS`）。後ろの3つは注記だけが持ち、ビューワが縦書きと字高・字間を描くのに使います。`Elno` はフィーチャごとにユニークな文字列でタイル内の文字列辞書を最も膨らませるため落としています。`RecordType`・`DataType`・`DataKind`・`Scale` はレイヤー内でほぼ単一値か表示専用のため同様です。
 
 `Seq` はビューワが電柱の向き（複数ペアの方向要素）を要素につき1個のアイコンで描くのに使います（[電柱の向きを示す短い線](../viewer/README.md#電柱の向きを示す短い線)）。
 

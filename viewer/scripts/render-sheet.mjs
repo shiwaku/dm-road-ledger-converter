@@ -138,7 +138,7 @@ const base = arg('base', 'blank')
  *
  *   strokes  線・面の輪郭（road_line* / road_polygon*。ラベルの road_*_elev は除く）
  *   icons    記号・方向のアイコンと代替図形の丸（road_symbol_* / road_direction_*）
- *   text     注記と標高値のラベル（road_annotation / road_*_elev）
+ *   text     注記と標高値のラベル（road_annotation* / road_*_elev）
  *
  * 未指定なら全部描く。アイコンは icon-allow-overlap / icon-ignore-placement が真、
  * 標高点と注記のラベルも text-allow-overlap が真なので、単独で描いても全部描いたときと
@@ -148,7 +148,7 @@ const base = arg('base', 'blank')
  * ラベル数を数える用途に使う。
  */
 const CLASS_OF = (id) => {
-  if (/_elev$/.test(id) || id === 'road_annotation') return 'text'
+  if (/_elev$/.test(id) || id.startsWith('road_annotation')) return 'text'
   if (/^road_(symbol|direction)_/.test(id)) return 'icons'
   if (/^road_(line|polygon)/.test(id)) return 'strokes'
   return null
